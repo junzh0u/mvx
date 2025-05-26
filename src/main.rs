@@ -1,16 +1,15 @@
+use clap::Parser;
 use fs_extra::file::{move_file_with_progress, CopyOptions, TransitProcess};
-use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
+use indicatif::{HumanDuration, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use clap::Parser;
-
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
-struct Args {
-    /// Suppress progress bar and other output
+struct Cli {
+    /// Suppress progress bars and messages
     #[arg(short, long)]
     quiet: bool,
 
@@ -19,13 +18,30 @@ struct Args {
 }
 
 fn main() {
-    let args = Args::parse();
-
-    merge(&args.src, &args.dest, args.quiet).unwrap();
+    merge(Cli::parse()).unwrap();
 }
 
-fn merge(src: &PathBuf, dest: &PathBuf, quiet: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn merge(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let start = Instant::now();
+
+    let mp = MultiProgress::new();
+    if cli.quiet {
+        mp.set_draw_target(ProgressDrawTarget::hidden());
+    }
+
+    let src = &cli.src;
+    let dest = &cli.dest;
+
+    let pb_info = mp.add(
+        ProgressBar::new_spinner()
+            .with_style(ProgressStyle::default_spinner().tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")),
+    );
+    pb_info.set_message(format!(
+        "Merging '{}' into '{}'",
+        src.display(),
+        dest.display()
+    ));
+    pb_info.enable_steady_tick(std::time::Duration::from_millis(100));
 
     if !src.is_dir() {
         return Err(Box::new(std::io::Error::new(
@@ -47,17 +63,12 @@ fn merge(src: &PathBuf, dest: &PathBuf, quiet: bool) -> Result<(), Box<dyn std::
 
     let files = collect_files(src)?;
 
-    let m = MultiProgress::new();
-    let pb_files = m.add(
+    let pb_files = mp.add(
         ProgressBar::new(files.len() as u64).with_style(
-            ProgressStyle::default_bar()
-                .template("[{bar:40.cyan/blue}] {pos}/{len} {msg}")?
+            ProgressStyle::with_template("[{bar:40.cyan/blue}] {pos}/{len} {msg}")?
                 .progress_chars("=>-"),
         ),
     );
-    if quiet {
-        m.set_draw_target(ProgressDrawTarget::hidden());
-    }
 
     for file in files {
         let rel_path = file.strip_prefix(src)?;
@@ -72,7 +83,7 @@ fn merge(src: &PathBuf, dest: &PathBuf, quiet: bool) -> Result<(), Box<dyn std::
         if src_meta.dev() == dest_meta.dev() {
             fs::rename(&file, &dest_file)?;
         } else {
-            let pb_bytes = m.add(
+            let pb_bytes = mp.add(
                 ProgressBar::new(src_meta.len()).with_style(
                     ProgressStyle::default_bar()
                         .template("[{bar:40.green/white}] {bytes}/{total_bytes} [{bytes_per_sec}] (ETA: {eta})")?
@@ -85,23 +96,23 @@ fn merge(src: &PathBuf, dest: &PathBuf, quiet: bool) -> Result<(), Box<dyn std::
             let options = CopyOptions::new().overwrite(true);
             move_file_with_progress(&file, &dest_file, &options, progress_handler)?;
             pb_bytes.finish_and_clear();
+            mp.remove(&pb_bytes);
         }
         pb_files.inc(1);
     }
 
     fs::remove_dir_all(src)?;
 
-    let elapsed = start.elapsed().as_secs_f32();
-    let hours = (elapsed / 3600.0).floor() as u64;
-    let minutes = ((elapsed % 3600.0) / 60.0).floor() as u64;
-    let seconds = elapsed % 60.0;
-    let time_str = match (hours, minutes) {
-        (0, 0) => format!("{:.2} seconds", seconds),
-        (0, m) => format!("{} minutes {:.2} seconds", m, seconds),
-        (h, m) => format!("{} hours {} minutes {:.2} seconds", h, m, seconds),
-    };
-    pb_files.finish_with_message(format!("finished in {}", time_str));
-
+    pb_files.finish_and_clear();
+    mp.remove(&pb_files);
+    pb_info.set_style(ProgressStyle::default_spinner().template("{prefix:.bold.green} {msg}")?);
+    pb_info.set_prefix("✔");
+    pb_info.finish_with_message(format!(
+        "Merged '{}' into '{}' in {}",
+        src.display(),
+        dest.display(),
+        HumanDuration(start.elapsed())
+    ));
     Ok(())
 }
 

@@ -1,0 +1,8 @@
+[package]
+name = "merge"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fs_extra = "1.3.0"
+indicatif = "0.17.11"

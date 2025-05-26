@@ -1,27 +1,30 @@
 use fs_extra::file::{move_file_with_progress, CopyOptions, TransitProcess};
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::fs;
 use std::os::unix::fs::MetadataExt;
-use std::path::Path;
+use std::path::PathBuf;
 use std::time::Instant;
 
-fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() != 3 {
-        eprintln!("Usage: merge <src> <dest>");
-        std::process::exit(1);
-    }
+use clap::Parser;
 
-    if let Err(e) = merge(
-        std::path::Path::new(&args[1]),
-        std::path::Path::new(&args[2]),
-    ) {
-        eprintln!("{}", e);
-        std::process::exit(1);
-    }
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Suppress progress bar and other output
+    #[arg(short, long)]
+    quiet: bool,
+
+    src: PathBuf,
+    dest: PathBuf,
 }
 
-fn merge(src: &Path, dest: &Path) -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
+    let args = Args::parse();
+
+    merge(&args.src, &args.dest, args.quiet).unwrap();
+}
+
+fn merge(src: &PathBuf, dest: &PathBuf, quiet: bool) -> Result<(), Box<dyn std::error::Error>> {
     let start = Instant::now();
 
     if !src.is_dir() {
@@ -44,7 +47,7 @@ fn merge(src: &Path, dest: &Path) -> Result<(), Box<dyn std::error::Error>> {
 
     let files = collect_files(src)?;
 
-    let m: MultiProgress = MultiProgress::new();
+    let m = MultiProgress::new();
     let pb_files = m.add(
         ProgressBar::new(files.len() as u64).with_style(
             ProgressStyle::default_bar()
@@ -52,6 +55,9 @@ fn merge(src: &Path, dest: &Path) -> Result<(), Box<dyn std::error::Error>> {
                 .progress_chars("=>-"),
         ),
     );
+    if quiet {
+        m.set_draw_target(ProgressDrawTarget::hidden());
+    }
 
     for file in files {
         let rel_path = file.strip_prefix(src)?;
@@ -99,7 +105,7 @@ fn merge(src: &Path, dest: &Path) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn collect_files(dir: &Path) -> std::io::Result<Vec<std::path::PathBuf>> {
+fn collect_files(dir: &PathBuf) -> std::io::Result<Vec<std::path::PathBuf>> {
     Ok(fs::read_dir(dir)?
         .filter_map(Result::ok)
         .map(|entry| entry.path())

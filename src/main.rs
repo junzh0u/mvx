@@ -1,3 +1,4 @@
+use anyhow::ensure;
 use clap::Parser;
 use fs_extra::file::{move_file_with_progress, CopyOptions, TransitProcess};
 use indicatif::{HumanDuration, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
@@ -21,16 +22,30 @@ fn main() {
     merge(Cli::parse()).unwrap();
 }
 
-fn merge(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
+fn merge(cli: Cli) -> anyhow::Result<()> {
     let start = Instant::now();
+
+    let src = &cli.src;
+    let dest = &cli.dest;
+    ensure!(
+        src.is_dir(),
+        "Source path '{}' is not a directory.",
+        src.display()
+    );
+    if dest.exists() {
+        ensure!(
+            dest.is_dir(),
+            "Destination path is not a directory: '{}'",
+            dest.display()
+        );
+    } else {
+        fs::create_dir_all(dest)?;
+    }
 
     let mp = MultiProgress::new();
     if cli.quiet {
         mp.set_draw_target(ProgressDrawTarget::hidden());
     }
-
-    let src = &cli.src;
-    let dest = &cli.dest;
 
     let pb_info = mp.add(
         ProgressBar::new_spinner()
@@ -43,33 +58,13 @@ fn merge(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     ));
     pb_info.enable_steady_tick(std::time::Duration::from_millis(100));
 
-    if !src.is_dir() {
-        return Err(Box::new(std::io::Error::new(
-            std::io::ErrorKind::NotADirectory,
-            format!("Source path '{}' is not a directory.", src.display()),
-        )));
-    }
-
-    if dest.exists() {
-        if !dest.is_dir() {
-            return Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::NotADirectory,
-                format!("Destination path is not a directory: '{}'", dest.display()),
-            )));
-        }
-    } else {
-        fs::create_dir_all(dest)?;
-    }
-
     let files = collect_files(src)?;
-
     let pb_files = mp.add(
         ProgressBar::new(files.len() as u64).with_style(
             ProgressStyle::with_template("[{bar:40.cyan/blue}] {pos}/{len} {msg}")?
                 .progress_chars("=>-"),
         ),
     );
-
     for file in files {
         let rel_path = file.strip_prefix(src)?;
         let dest_file = dest.join(rel_path);
@@ -100,7 +95,6 @@ fn merge(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         }
         pb_files.inc(1);
     }
-
     fs::remove_dir_all(src)?;
 
     pb_files.finish_and_clear();
@@ -122,7 +116,7 @@ fn collect_files(dir: &PathBuf) -> std::io::Result<Vec<std::path::PathBuf>> {
         .map(|entry| entry.path())
         .flat_map(|path| {
             if path.is_dir() {
-                collect_files(&path).unwrap_or_default()
+                collect_files(&path).unwrap()
             } else if path.is_file() {
                 vec![path]
             } else {

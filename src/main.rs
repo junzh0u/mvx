@@ -1,3 +1,4 @@
+use anyhow::bail;
 use anyhow::ensure;
 use clap::Parser;
 use fs_extra::file::{move_file_with_progress, CopyOptions, TransitProcess};
@@ -23,6 +24,7 @@ fn main() {
 }
 
 fn run(cli: Cli) -> anyhow::Result<()> {
+    let start = Instant::now();
     let mp = MultiProgress::new();
     if cli.quiet {
         mp.set_draw_target(ProgressDrawTarget::hidden());
@@ -34,34 +36,64 @@ fn run(cli: Cli) -> anyhow::Result<()> {
     pb_info.enable_steady_tick(std::time::Duration::from_millis(100));
 
     let src = &cli.src;
-    let dest = &cli.dest;
+    let mut dest = cli.dest.clone();
     ensure!(
-        src.is_dir(),
-        "Source path '{}' is not a directory.",
+        src.exists(),
+        "Source path '{}' does not exist.",
         src.display()
     );
-    if dest.exists() {
-        ensure!(
-            dest.is_dir(),
-            "Destination path is not a directory: '{}'",
+    if src.is_file() {
+        if dest.is_dir() || (!dest.exists() && dest.to_string_lossy().ends_with('/')) {
+            dest.push(src.file_name().unwrap());
+        }
+        pb_info.set_message(format!(
+            "Moving '{}' to '{}'",
+            src.display(),
             dest.display()
-        );
+        ));
+        move_file(src, &dest, &mp)?;
+        pb_info.set_style(ProgressStyle::default_spinner().template("{prefix:.bold.green} {msg}")?);
+        pb_info.set_prefix("✔");
+        pb_info.finish_with_message(format!(
+            "Moved '{}' to '{}' in {}",
+            src.display(),
+            dest.display(),
+            HumanDuration(start.elapsed())
+        ));
+    } else if src.is_dir() {
+        if dest.exists() {
+            ensure!(
+                dest.is_dir(),
+                "Destination path is not a directory: '{}'",
+                dest.display()
+            );
+        } else {
+            fs::create_dir_all(&dest)?;
+        }
+        pb_info.set_message(format!(
+            "Merging '{}' into '{}'",
+            src.display(),
+            dest.display()
+        ));
+        merge_directories(src, &dest, &mp)?;
+        pb_info.set_style(ProgressStyle::default_spinner().template("{prefix:.bold.green} {msg}")?);
+        pb_info.set_prefix("✔");
+        pb_info.finish_with_message(format!(
+            "Merged '{}' into '{}' in {}",
+            src.display(),
+            dest.display(),
+            HumanDuration(start.elapsed())
+        ));
     } else {
-        fs::create_dir_all(dest)?;
+        bail!(
+            "Source path is neither a file nor directory: '{}'",
+            src.display()
+        )
     }
-
-    merge_directories(&cli.src, &cli.dest, &pb_info, &mp)?;
     Ok(())
 }
 
-fn merge_directories(src: &PathBuf, dest: &PathBuf, pb_info: &ProgressBar, mp: &MultiProgress) -> anyhow::Result<()> {
-    let start = Instant::now();
-    pb_info.set_message(format!(
-        "Merging '{}' into '{}'",
-        src.display(),
-        dest.display()
-    ));
-
+fn merge_directories(src: &PathBuf, dest: &PathBuf, mp: &MultiProgress) -> anyhow::Result<()> {
     let files = collect_files(src)?;
     let pb_files = mp.add(
         ProgressBar::new(files.len() as u64).with_style(
@@ -83,15 +115,6 @@ fn merge_directories(src: &PathBuf, dest: &PathBuf, pb_info: &ProgressBar, mp: &
 
     pb_files.finish_and_clear();
     mp.remove(&pb_files);
-
-    pb_info.set_style(ProgressStyle::default_spinner().template("{prefix:.bold.green} {msg}")?);
-    pb_info.set_prefix("✔");
-    pb_info.finish_with_message(format!(
-        "Merged '{}' into '{}' in {}",
-        src.display(),
-        dest.display(),
-        HumanDuration(start.elapsed())
-    ));
 
     Ok(())
 }

@@ -1,6 +1,7 @@
 use anyhow::bail;
 use anyhow::ensure;
 use clap::Parser;
+use core::panic;
 use fs_extra::file::{CopyOptions, TransitProcess, move_file_with_progress};
 use indicatif::{HumanDuration, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::fs;
@@ -152,7 +153,7 @@ fn collect_files(dir: &PathBuf) -> std::io::Result<Vec<std::path::PathBuf>> {
             } else if path.is_file() {
                 vec![path]
             } else {
-                vec![]
+                panic!("Unexpected path type: {}", path.display())
             }
         })
         .collect())

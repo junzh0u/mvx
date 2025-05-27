@@ -19,11 +19,19 @@ struct Cli {
 }
 
 fn main() {
-    merge(Cli::parse()).unwrap();
+    run(Cli::parse()).unwrap();
 }
 
-fn merge(cli: Cli) -> anyhow::Result<()> {
-    let start = Instant::now();
+fn run(cli: Cli) -> anyhow::Result<()> {
+    let mp = MultiProgress::new();
+    if cli.quiet {
+        mp.set_draw_target(ProgressDrawTarget::hidden());
+    }
+    let pb_info = mp.add(
+        ProgressBar::new_spinner()
+            .with_style(ProgressStyle::default_spinner().tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")),
+    );
+    pb_info.enable_steady_tick(std::time::Duration::from_millis(100));
 
     let src = &cli.src;
     let dest = &cli.dest;
@@ -42,21 +50,17 @@ fn merge(cli: Cli) -> anyhow::Result<()> {
         fs::create_dir_all(dest)?;
     }
 
-    let mp = MultiProgress::new();
-    if cli.quiet {
-        mp.set_draw_target(ProgressDrawTarget::hidden());
-    }
+    merge_directories(&cli.src, &cli.dest, &pb_info, &mp)?;
+    Ok(())
+}
 
-    let pb_info = mp.add(
-        ProgressBar::new_spinner()
-            .with_style(ProgressStyle::default_spinner().tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")),
-    );
+fn merge_directories(src: &PathBuf, dest: &PathBuf, pb_info: &ProgressBar, mp: &MultiProgress) -> anyhow::Result<()> {
+    let start = Instant::now();
     pb_info.set_message(format!(
         "Merging '{}' into '{}'",
         src.display(),
         dest.display()
     ));
-    pb_info.enable_steady_tick(std::time::Duration::from_millis(100));
 
     let files = collect_files(src)?;
     let pb_files = mp.add(
@@ -65,40 +69,21 @@ fn merge(cli: Cli) -> anyhow::Result<()> {
                 .progress_chars("=>-"),
         ),
     );
+
     for file in files {
         let rel_path = file.strip_prefix(src)?;
         let dest_file = dest.join(rel_path);
         pb_files.set_message(rel_path.display().to_string());
 
-        let parent = dest_file.parent().unwrap();
-        fs::create_dir_all(parent)?;
+        move_file(&file, &dest_file, &mp)?;
 
-        let src_meta = fs::metadata(&file)?;
-        let dest_meta = fs::metadata(parent)?;
-        if src_meta.dev() == dest_meta.dev() {
-            fs::rename(&file, &dest_file)?;
-        } else {
-            let pb_bytes = mp.add(
-                ProgressBar::new(src_meta.len()).with_style(
-                    ProgressStyle::default_bar()
-                        .template("[{bar:40.green/white}] {bytes}/{total_bytes} [{bytes_per_sec}] (ETA: {eta})")?
-                        .progress_chars("=>-"),
-                ),
-            );
-            let progress_handler = |transit: TransitProcess| {
-                pb_bytes.set_position(transit.copied_bytes);
-            };
-            let options = CopyOptions::new().overwrite(true);
-            move_file_with_progress(&file, &dest_file, &options, progress_handler)?;
-            pb_bytes.finish_and_clear();
-            mp.remove(&pb_bytes);
-        }
         pb_files.inc(1);
     }
     fs::remove_dir_all(src)?;
 
     pb_files.finish_and_clear();
     mp.remove(&pb_files);
+
     pb_info.set_style(ProgressStyle::default_spinner().template("{prefix:.bold.green} {msg}")?);
     pb_info.set_prefix("✔");
     pb_info.finish_with_message(format!(
@@ -107,6 +92,34 @@ fn merge(cli: Cli) -> anyhow::Result<()> {
         dest.display(),
         HumanDuration(start.elapsed())
     ));
+
+    Ok(())
+}
+
+fn move_file(src: &PathBuf, dest: &PathBuf, mp: &MultiProgress) -> anyhow::Result<()> {
+    let parent = dest.parent().unwrap();
+    fs::create_dir_all(parent)?;
+
+    let src_meta = fs::metadata(&src)?;
+    let dest_meta = fs::metadata(parent)?;
+    if src_meta.dev() == dest_meta.dev() {
+        fs::rename(&src, &dest)?;
+    } else {
+        let pb_bytes = mp.add(
+            ProgressBar::new(src_meta.len()).with_style(
+                ProgressStyle::default_bar()
+                    .template("[{bar:40.green/white}] {bytes}/{total_bytes} [{bytes_per_sec}] (ETA: {eta})")?
+                    .progress_chars("=>-"),
+            ),
+        );
+        let progress_handler = |transit: TransitProcess| {
+            pb_bytes.set_position(transit.copied_bytes);
+        };
+        let options = CopyOptions::new().overwrite(true);
+        move_file_with_progress(&src, &dest, &options, progress_handler)?;
+        pb_bytes.finish_and_clear();
+        mp.remove(&pb_bytes);
+    }
     Ok(())
 }
 

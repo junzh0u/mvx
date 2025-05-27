@@ -1,0 +1,36 @@
+name: Build and Release Linux Binary
+
+on:
+  push:
+    tags:
+      - "v*.*.*"  # Triggers on version tags like v1.0.0
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Build binary
+      run: |
+        cargo build --release
+        mkdir -p dist
+        cp target/release/merge dist/
+        echo "${{ github.ref_name }}" > dist/version.txt
+
+    - name: Upload release assets
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          dist/merge
+          dist/version.txt
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

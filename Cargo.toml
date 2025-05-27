@@ -1,7 +1,10 @@
 [package]
 name = "mvx"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+description = "Enhanced file and directory move utility with progress bars and cross-device support"
+license = "MIT"
+repository = "https://github.com/junzh0u/mvx"
 
 [dependencies]
 anyhow = "1.0.98"

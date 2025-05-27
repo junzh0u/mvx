@@ -1,7 +1,7 @@
 use anyhow::bail;
 use anyhow::ensure;
 use clap::Parser;
-use fs_extra::file::{move_file_with_progress, CopyOptions, TransitProcess};
+use fs_extra::file::{CopyOptions, TransitProcess, move_file_with_progress};
 use indicatif::{HumanDuration, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::fs;
 use std::os::unix::fs::MetadataExt;

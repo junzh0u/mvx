@@ -1,10 +1,10 @@
 use anyhow::Result;
 use clap::Parser;
-use mvx::{run, Cli};
+use mvx::{Cli, run};
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
-use tempfile::{tempdir, NamedTempFile};
+use tempfile::{NamedTempFile, tempdir};
 
 // Helper function to create a temporary file with content
 fn create_temp_file(content: &str) -> NamedTempFile {

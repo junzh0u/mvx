@@ -1,5 +1,5 @@
 use clap::Parser;
-use mvx::{run, Cli};
+use mvx::{Cli, run};
 
 fn main() {
     run(Cli::parse()).unwrap();

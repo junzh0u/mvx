@@ -5,7 +5,7 @@ use fs_extra::file::{move_file_with_progress, CopyOptions, TransitProcess};
 use indicatif::{HumanDuration, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::fs;
 use std::os::unix::fs::MetadataExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 #[derive(Parser, Debug)]
@@ -89,7 +89,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn merge_directories(src: &PathBuf, dest: &PathBuf, mp: &MultiProgress) -> anyhow::Result<()> {
+fn merge_directories(src: &PathBuf, dest: &Path, mp: &MultiProgress) -> anyhow::Result<()> {
     let files = collect_files(src)?;
     let pb_files = mp.add(
         ProgressBar::new(files.len() as u64).with_style(
@@ -103,7 +103,7 @@ fn merge_directories(src: &PathBuf, dest: &PathBuf, mp: &MultiProgress) -> anyho
         let dest_file = dest.join(rel_path);
         pb_files.set_message(rel_path.display().to_string());
 
-        move_file(&file, &dest_file, &mp)?;
+        move_file(&file, &dest_file, mp)?;
 
         pb_files.inc(1);
     }
@@ -119,10 +119,10 @@ fn move_file(src: &PathBuf, dest: &PathBuf, mp: &MultiProgress) -> anyhow::Resul
     let parent = dest.parent().unwrap();
     fs::create_dir_all(parent)?;
 
-    let src_meta = fs::metadata(&src)?;
+    let src_meta = fs::metadata(src)?;
     let dest_meta = fs::metadata(parent)?;
     if src_meta.dev() == dest_meta.dev() {
-        fs::rename(&src, &dest)?;
+        fs::rename(src, dest)?;
     } else {
         let pb_bytes = mp.add(
             ProgressBar::new(src_meta.len()).with_style(
@@ -135,7 +135,7 @@ fn move_file(src: &PathBuf, dest: &PathBuf, mp: &MultiProgress) -> anyhow::Resul
             pb_bytes.set_position(transit.copied_bytes);
         };
         let options = CopyOptions::new().overwrite(true);
-        move_file_with_progress(&src, &dest, &options, progress_handler)?;
+        move_file_with_progress(src, dest, &options, progress_handler)?;
         pb_bytes.finish_and_clear();
         mp.remove(&pb_bytes);
     }

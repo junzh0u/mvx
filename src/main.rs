@@ -2,5 +2,11 @@ use clap::Parser;
 use mvx::{Cli, run};
 
 fn main() {
-    run(Cli::parse()).unwrap();
+    match run(Cli::parse()) {
+        Ok(_) => (),
+        Err(e) => {
+            eprintln!("Error: {:?}", e);
+            std::process::exit(1);
+        }
+    }
 }

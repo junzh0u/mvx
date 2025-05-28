@@ -15,7 +15,10 @@ pub struct Cli {
     #[arg(short, long)]
     quiet: bool,
 
+    /// Path to move from
     src: PathBuf,
+
+    /// Path to move or merge to
     dest: PathBuf,
 }
 
@@ -107,12 +110,19 @@ fn merge_directories(src: &PathBuf, dest: &Path, mp: &MultiProgress) -> anyhow::
 
         pb_files.inc(1);
     }
-    fs::remove_dir_all(src)?;
+    recur_remove_dir(src)?;
 
     pb_files.finish_and_clear();
     mp.remove(&pb_files);
 
     Ok(())
+}
+
+fn recur_remove_dir(dir: &PathBuf) -> std::io::Result<()> {
+    for entry in fs::read_dir(dir)? {
+        recur_remove_dir(&entry?.path())?
+    }
+    fs::remove_dir(dir)
 }
 
 fn move_file(src: &PathBuf, dest: &PathBuf, mp: &MultiProgress) -> anyhow::Result<()> {
@@ -152,7 +162,7 @@ fn collect_files(dir: &PathBuf) -> std::io::Result<Vec<PathBuf>> {
         .map(|entry| entry.path())
         .flat_map(|path| {
             if path.is_dir() {
-                collect_files(&path).unwrap()
+                collect_files(&path).unwrap_or_default()
             } else if path.is_file() {
                 vec![path]
             } else {

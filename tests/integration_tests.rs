@@ -42,7 +42,7 @@ fn create_temp_dir_with_files() -> (tempfile::TempDir, Vec<PathBuf>) {
 // Helper function to run mvx command with quiet mode
 fn run_mvx(src: &PathBuf, dest: &str) -> Result<()> {
     let cli = Cli::parse_from(["mvx", "-q", src.to_str().unwrap(), dest]);
-    run(cli)
+    run(&cli)
 }
 
 // Helper function to verify a file was moved correctly

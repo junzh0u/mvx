@@ -22,7 +22,10 @@ pub struct Cli {
     dest: PathBuf,
 }
 
-pub fn run(cli: Cli) -> anyhow::Result<()> {
+/// # Errors
+///
+/// Will return `Err` if move/merge fails for any reason.
+pub fn run(cli: &Cli) -> anyhow::Result<()> {
     let start = std::time::Instant::now();
     let mp = MultiProgress::new();
     if cli.quiet {
@@ -43,7 +46,10 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
     );
     if src.is_file() {
         if dest.is_dir() || (!dest.exists() && dest.to_string_lossy().ends_with('/')) {
-            dest.push(src.file_name().unwrap());
+            match src.file_name() {
+                Some(name) => dest.push(name),
+                None => bail!("Cannot get file name from '{}'", src.display()),
+            }
         }
         pb_info.set_message(format!(
             "Moving '{}' to '{}'",
@@ -120,7 +126,7 @@ fn merge_directories(src: &PathBuf, dest: &Path, mp: &MultiProgress) -> anyhow::
 
 fn recur_remove_dir(dir: &PathBuf) -> std::io::Result<()> {
     for entry in fs::read_dir(dir)? {
-        recur_remove_dir(&entry?.path())?
+        recur_remove_dir(&entry?.path())?;
     }
     fs::remove_dir(dir)
 }

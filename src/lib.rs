@@ -2,13 +2,11 @@ use anyhow::bail;
 use anyhow::ensure;
 use clap::Parser;
 use core::panic;
-use std::path;
 use fs_extra::file::{CopyOptions, TransitProcess, move_file_with_progress};
 use indicatif::{HumanDuration, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -22,7 +20,7 @@ pub struct Cli {
 }
 
 pub fn run(cli: Cli) -> anyhow::Result<()> {
-    let start = Instant::now();
+    let start = std::time::Instant::now();
     let mp = MultiProgress::new();
     if cli.quiet {
         mp.set_draw_target(ProgressDrawTarget::hidden());
@@ -118,35 +116,37 @@ fn merge_directories(src: &PathBuf, dest: &Path, mp: &MultiProgress) -> anyhow::
 }
 
 fn move_file(src: &PathBuf, dest: &PathBuf, mp: &MultiProgress) -> anyhow::Result<()> {
-    let dest_abs = path::absolute(dest)?;
-    let dest_parent = dest_abs.parent().unwrap();
-    fs::create_dir_all(dest_parent)?;
-
     let src_meta = fs::metadata(src)?;
-    let dest_parent_meta = fs::metadata(dest_parent)?;
 
-    if src_meta.dev() == dest_parent_meta.dev() {
-        fs::rename(src, dest)?;
-    } else {
-        let pb_bytes = mp.add(
-            ProgressBar::new(src_meta.len()).with_style(
-                ProgressStyle::default_bar()
-                    .template("[{bar:40.green/white}] {bytes}/{total_bytes} [{bytes_per_sec}] (ETA: {eta})")?
-                    .progress_chars("=>-"),
-            ),
-        );
-        let progress_handler = |transit: TransitProcess| {
-            pb_bytes.set_position(transit.copied_bytes);
-        };
-        let options = CopyOptions::new().overwrite(true);
-        move_file_with_progress(src, dest, &options, progress_handler)?;
-        pb_bytes.finish_and_clear();
-        mp.remove(&pb_bytes);
+    let dest_abs = std::path::absolute(dest)?;
+    if let Some(dest_parent) = dest_abs.parent() {
+        fs::create_dir_all(dest_parent)?;
+        if src_meta.dev() == fs::metadata(dest_parent)?.dev() {
+            fs::rename(src, dest)?;
+            return Ok(());
+        }
     }
+
+    let pb_bytes = mp.add(
+        ProgressBar::new(src_meta.len()).with_style(
+            ProgressStyle::default_bar()
+                .template(
+                    "[{bar:40.green/white}] {bytes}/{total_bytes} [{bytes_per_sec}] (ETA: {eta})",
+                )?
+                .progress_chars("=>-"),
+        ),
+    );
+    let progress_handler = |transit: TransitProcess| {
+        pb_bytes.set_position(transit.copied_bytes);
+    };
+    let options = CopyOptions::new().overwrite(true);
+    move_file_with_progress(src, dest, &options, progress_handler)?;
+    pb_bytes.finish_and_clear();
+    mp.remove(&pb_bytes);
     Ok(())
 }
 
-fn collect_files(dir: &PathBuf) -> std::io::Result<Vec<std::path::PathBuf>> {
+fn collect_files(dir: &PathBuf) -> std::io::Result<Vec<PathBuf>> {
     Ok(fs::read_dir(dir)?
         .filter_map(Result::ok)
         .map(|entry| entry.path())

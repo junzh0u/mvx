@@ -2,6 +2,7 @@ use anyhow::bail;
 use anyhow::ensure;
 use clap::Parser;
 use core::panic;
+use std::path;
 use fs_extra::file::{CopyOptions, TransitProcess, move_file_with_progress};
 use indicatif::{HumanDuration, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::fs;
@@ -117,12 +118,14 @@ fn merge_directories(src: &PathBuf, dest: &Path, mp: &MultiProgress) -> anyhow::
 }
 
 fn move_file(src: &PathBuf, dest: &PathBuf, mp: &MultiProgress) -> anyhow::Result<()> {
-    let parent = dest.parent().unwrap();
-    fs::create_dir_all(parent)?;
+    let dest_abs = path::absolute(dest)?;
+    let dest_parent = dest_abs.parent().unwrap();
+    fs::create_dir_all(dest_parent)?;
 
     let src_meta = fs::metadata(src)?;
-    let dest_meta = fs::metadata(parent)?;
-    if src_meta.dev() == dest_meta.dev() {
+    let dest_parent_meta = fs::metadata(dest_parent)?;
+
+    if src_meta.dev() == dest_parent_meta.dev() {
         fs::rename(src, dest)?;
     } else {
         let pb_bytes = mp.add(

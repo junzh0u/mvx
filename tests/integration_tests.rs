@@ -70,7 +70,7 @@ fn verify_file_moved(src_path: &PathBuf, dest_path: &PathBuf, expected_content: 
 // Helper function to create a file with content at a specific path
 fn create_file_with_content(path: &PathBuf, content: &str) -> std::io::Result<()> {
     let mut file = fs::File::create(path)?;
-    writeln!(file, "{}", content)?;
+    write!(file, "{}", content)?;
     Ok(())
 }
 
@@ -518,4 +518,29 @@ fn test_error_nonexistent_source() {
         !dest_path.exists(),
         "Destination file was created despite error"
     );
+}
+
+#[test]
+fn test_move_file_same_directory() {
+    // Create a temporary directory to serve as our "current directory"
+    let temp_dir = tempdir().unwrap();
+    let dir_path = temp_dir.path().to_path_buf();
+
+    // Create a file "a" in the directory with content
+    let content = "This is file 'a' that will be renamed to 'b'";
+    let src_path = dir_path.join("a");
+    create_file_with_content(&src_path, content).unwrap();
+
+    // Run the mvx command by cd'ing into the directory and using just filenames
+    std::env::set_current_dir(&dir_path).unwrap();
+    let result = run_mvx(&PathBuf::from("a"), "b");
+    assert!(
+        result.is_ok(),
+        "Failed to move file within same directory: {:?}",
+        result.err()
+    );
+
+    // Verify the file was moved correctly
+    let dest_path = dir_path.join("b");
+    verify_file_moved(&src_path, &dest_path, content);
 }

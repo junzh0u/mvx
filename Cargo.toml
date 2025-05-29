@@ -5,6 +5,11 @@ edition = "2024"
 description = "Enhanced file and directory move utility with progress bars and cross-device support"
 license = "MIT"
 repository = "https://github.com/junzh0u/mvx"
+documentation = "https://docs.rs/mvx"
+readme = "README.md"
+keywords = ["mv", "move", "file", "utility", "cli"]
+categories = ["command-line-utilities", "filesystem"]
+authors = ["Jun Zhou <github@junz.info>"]
 
 [dependencies]
 anyhow = "1.0.98"

@@ -69,7 +69,9 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
         ProgressBar::new_spinner()
             .with_style(ProgressStyle::default_spinner().tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")),
     );
-    pb_info.enable_steady_tick(std::time::Duration::from_millis(100));
+    if !mp.is_hidden() {
+        pb_info.enable_steady_tick(std::time::Duration::from_millis(100));
+    }
 
     let src = &cli.src;
     let mut dest = cli.dest.clone();

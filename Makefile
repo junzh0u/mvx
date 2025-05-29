@@ -9,7 +9,7 @@ fmt:
 
 # Run clippy for linting
 clippy:
-	cargo clippy -- -W clippy::pedantic
+	cargo clippy -- -W clippy::pedantic -D warnings
 
 # Run tests
 test:

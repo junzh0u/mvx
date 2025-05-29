@@ -52,7 +52,7 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
             }
         }
         pb_info.set_message(format!(
-            "Moving '{}' to '{}'",
+            "Moving: '{}' => '{}'",
             src.display(),
             dest.display()
         ));
@@ -60,10 +60,10 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
         pb_info.set_style(ProgressStyle::default_spinner().template("{prefix:.bold.green} {msg}")?);
         pb_info.set_prefix("✔");
         pb_info.finish_with_message(format!(
-            "Moved '{}' to '{}' in {}",
+            "Moved in {}: '{}' => '{}'",
+            HumanDuration(start.elapsed()),
             src.display(),
             dest.display(),
-            HumanDuration(start.elapsed())
         ));
     } else if src.is_dir() {
         if dest.exists() {

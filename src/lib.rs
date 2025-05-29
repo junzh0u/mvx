@@ -94,7 +94,7 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
         pb_info.set_style(ProgressStyle::with_template("{msg}")?);
         pb_info.finish_with_message(format!(
             "{} Moved in {}: '{}' => '{}'",
-            "✔".green().bold(),
+            "→".green().bold(),
             HumanDuration(start.elapsed()),
             src.display(),
             dest.display(),
@@ -118,7 +118,7 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
         pb_info.set_style(ProgressStyle::with_template("{msg}")?);
         pb_info.finish_with_message(format!(
             "{} Merged in {}: '{}' => '{}'",
-            "✔".green().bold(),
+            "↣".green().bold(),
             HumanDuration(start.elapsed()),
             src.display(),
             dest.display(),

@@ -1,6 +1,7 @@
 use anyhow::bail;
 use anyhow::ensure;
 use clap::Parser;
+use colored::Colorize;
 use core::panic;
 use fs_extra::file::{CopyOptions, TransitProcess, move_file_with_progress};
 use indicatif::{HumanDuration, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
@@ -54,13 +55,13 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
         pb_info.set_message(format!(
             "Moving: '{}' => '{}'",
             src.display(),
-            dest.display()
+            dest.display(),
         ));
         move_file(src, &dest, &mp)?;
-        pb_info.set_style(ProgressStyle::default_spinner().template("{prefix:.bold.green} {msg}")?);
-        pb_info.set_prefix("✔");
+        pb_info.set_style(ProgressStyle::with_template("{msg}")?);
         pb_info.finish_with_message(format!(
-            "Moved in {}: '{}' => '{}'",
+            "{} Moved in {}: '{}' => '{}'",
+            "✔".green().bold(),
             HumanDuration(start.elapsed()),
             src.display(),
             dest.display(),
@@ -76,18 +77,19 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
             fs::create_dir_all(&dest)?;
         }
         pb_info.set_message(format!(
-            "Merging '{}' into '{}'",
-            src.display(),
-            dest.display()
-        ));
-        merge_directories(src, &dest, &mp)?;
-        pb_info.set_style(ProgressStyle::default_spinner().template("{prefix:.bold.green} {msg}")?);
-        pb_info.set_prefix("✔");
-        pb_info.finish_with_message(format!(
-            "Merged '{}' into '{}' in {}",
+            "Merging: '{}' => '{}'",
             src.display(),
             dest.display(),
-            HumanDuration(start.elapsed())
+        ));
+        merge_directories(src, &dest, &mp)?;
+        pb_info.set_style(ProgressStyle::with_template("{msg}")?);
+        pb_info.set_prefix("✔");
+        pb_info.finish_with_message(format!(
+            "{} Merged in {}: '{}' => '{}'",
+            "✔".green().bold(),
+            HumanDuration(start.elapsed()),
+            src.display(),
+            dest.display(),
         ));
     } else {
         bail!(
@@ -145,11 +147,10 @@ fn move_file(src: &PathBuf, dest: &PathBuf, mp: &MultiProgress) -> anyhow::Resul
 
     let pb_bytes = mp.add(
         ProgressBar::new(src_meta.len()).with_style(
-            ProgressStyle::default_bar()
-                .template(
-                    "[{bar:40.green/white}] {bytes}/{total_bytes} [{bytes_per_sec}] (ETA: {eta})",
-                )?
-                .progress_chars("=>-"),
+            ProgressStyle::with_template(
+                "[{bar:40.green/white}] {bytes}/{total_bytes} [{bytes_per_sec}] (ETA: {eta})",
+            )?
+            .progress_chars("=>-"),
         ),
     );
     let progress_handler = |transit: TransitProcess| {

@@ -8,7 +8,6 @@ use fs_extra::file::{CopyOptions, TransitProcess, move_file_with_progress};
 use indicatif::{HumanDuration, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::fs;
 use std::io::Write;
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 #[derive(Parser, Debug)]
@@ -177,20 +176,29 @@ fn recur_remove_dir(dir: &PathBuf) -> std::io::Result<()> {
 
 fn move_file(src: &PathBuf, dest: &PathBuf, mp: &MultiProgress) -> anyhow::Result<()> {
     log::trace!("move_file('{}', '{}')", src.display(), dest.display());
-    let src_meta = fs::metadata(src)?;
-
-    let dest_abs = std::path::absolute(dest)?;
-    if let Some(dest_parent) = dest_abs.parent() {
+    if let Some(dest_parent) = dest.parent() {
         fs::create_dir_all(dest_parent)?;
-        if src_meta.dev() == fs::metadata(dest_parent)?.dev() {
-            fs::rename(src, dest)?;
+    }
+
+    match fs::rename(src, dest) {
+        Ok(()) => {
             log::debug!("Renamed: '{}' => '{}'", src.display(), dest.display());
             return Ok(());
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
+            log::debug!(
+                "'{}' and '{}' are on different devices, falling back to copy and delete.",
+                src.display(),
+                dest.display()
+            );
+        }
+        Err(e) => {
+            bail!(e);
         }
     }
 
     let pb_bytes = mp.add(
-        ProgressBar::new(src_meta.len()).with_style(
+        ProgressBar::new(fs::metadata(src)?.len()).with_style(
             ProgressStyle::with_template(
                 "[{bar:40.green/white}] {bytes}/{total_bytes} [{bytes_per_sec}] (ETA: {eta})",
             )?

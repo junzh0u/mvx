@@ -1,9 +1,8 @@
 use anyhow::Result;
-use clap::Parser;
-use mvx::{Cli, run};
+use mvx::run;
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tempfile::{NamedTempFile, tempdir};
 
 // Helper function to create a temporary file with content
@@ -41,8 +40,7 @@ fn create_temp_dir_with_files() -> (tempfile::TempDir, Vec<PathBuf>) {
 
 // Helper function to run mvx command with quiet mode
 fn run_mvx(src: &PathBuf, dest: &str) -> Result<()> {
-    let cli = Cli::parse_from(["mvx", "-q", src.to_str().unwrap(), dest]);
-    run(&cli)
+    run(src, Path::new(dest), None)
 }
 
 // Helper function to verify a file was moved correctly

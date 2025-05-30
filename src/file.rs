@@ -69,41 +69,10 @@ pub(crate) fn move_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::{assert_file_moved, create_temp_file};
     use serial_test::serial;
-
-    use std::{
-        fs,
-        path::{Path, PathBuf},
-    };
-
+    use std::fs;
     use tempfile::tempdir;
-
-    pub fn assert_file_moved<Src: AsRef<Path>, Dest: AsRef<Path>>(
-        src_path: Src,
-        dest_path: Dest,
-        expected_content: &str,
-    ) {
-        let src = src_path.as_ref();
-        let dest = dest_path.as_ref();
-        // Check that the source file no longer exists
-        assert!(
-            !src.exists(),
-            "Source file still exists at {}",
-            src.display()
-        );
-
-        // Check that the destination file exists and has the correct content
-        assert!(
-            dest.exists(),
-            "Destination file does not exist at {}",
-            dest.display()
-        );
-        let moved_content = fs::read_to_string(dest_path).unwrap();
-        assert_eq!(
-            moved_content, expected_content,
-            "File content doesn't match after move"
-        );
-    }
 
     pub fn assert_error_with_msg(result: anyhow::Result<()>, msg: &str) {
         assert!(result.is_err(), "Expected an error, but got success");
@@ -113,15 +82,6 @@ mod tests {
             "Error message doesn't mention that source doesn't exist: {}",
             err_msg
         );
-    }
-
-    fn create_temp_file<P: AsRef<Path>>(dir: P, name: &str, content: &str) -> PathBuf {
-        let path = dir.as_ref().join(name);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        std::fs::write(&path, content).unwrap();
-        path
     }
 
     #[test]
@@ -201,6 +161,13 @@ mod tests {
             .join("b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z");
 
         assert_error_with_msg(move_file(&src_path, &dest_path, None), "Not a directory");
-        // assert_file_moved(&src_path, &dest_path, src_content);
+        assert!(
+            src_path.exists(),
+            "Source file should not be moved when error occurs"
+        );
+        assert!(
+            !dest_path.exists(),
+            "Destination file should not be created when error occurs"
+        );
     }
 }

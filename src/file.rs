@@ -69,7 +69,7 @@ pub(crate) fn move_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{assert_file_moved, create_temp_file};
+    use crate::tests::{assert_file_moved, create_temp_file};
     use serial_test::serial;
     use std::fs;
     use tempfile::tempdir;

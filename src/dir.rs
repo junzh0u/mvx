@@ -93,7 +93,7 @@ fn collect_files_in_dir<P: AsRef<Path>>(dir: P) -> std::io::Result<Vec<PathBuf>>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{assert_file_moved, create_temp_file};
+    use crate::tests::{assert_file_moved, create_temp_file};
     use std::collections::HashSet;
     use tempfile::tempdir;
 

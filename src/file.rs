@@ -2,21 +2,22 @@ use std::{fs, path::Path};
 
 use anyhow::{bail, ensure};
 
-pub fn move_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
+pub(crate) fn move_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
     src: Src,
     dest: Dest,
     mp: Option<&indicatif::MultiProgress>,
 ) -> anyhow::Result<()> {
     let src = src.as_ref();
     let dest = dest.as_ref();
+    ensure!(src.exists(), "Source '{}' does not exist", src.display());
     ensure!(
-        src.exists(),
-        "Source file '{}' does not exist",
+        src.is_file(),
+        "Source '{}' exists but is not a file",
         src.display()
     );
     ensure!(
         !dest.exists() || dest.is_file(),
-        "Destination file '{}' already exists and is not a file",
+        "Destination '{}' already exists and is not a file",
         dest.display()
     );
 

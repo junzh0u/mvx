@@ -1,12 +1,25 @@
-use std::{fs, path::PathBuf};
+use std::{fs, path::Path};
 
-use anyhow::bail;
+use anyhow::{bail, ensure};
 
-pub fn move_file(
-    src: &PathBuf,
-    dest: &PathBuf,
+pub fn move_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
+    src: Src,
+    dest: Dest,
     mp: Option<&indicatif::MultiProgress>,
 ) -> anyhow::Result<()> {
+    let src = src.as_ref();
+    let dest = dest.as_ref();
+    ensure!(
+        src.exists(),
+        "Source file '{}' does not exist",
+        src.display()
+    );
+    ensure!(
+        !dest.exists() || dest.is_file(),
+        "Destination file '{}' already exists and is not a file",
+        dest.display()
+    );
+
     log::trace!("move_file('{}', '{}')", src.display(), dest.display());
     if let Some(dest_parent) = dest.parent() {
         fs::create_dir_all(dest_parent)?;
@@ -50,4 +63,143 @@ pub fn move_file(
     }
     log::debug!("Moved: '{}' => '{}'", src.display(), dest.display());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+    };
+
+    use tempfile::tempdir;
+
+    pub fn assert_file_moved<Src: AsRef<Path>, Dest: AsRef<Path>>(
+        src_path: Src,
+        dest_path: Dest,
+        expected_content: &str,
+    ) {
+        let src = src_path.as_ref();
+        let dest = dest_path.as_ref();
+        // Check that the source file no longer exists
+        assert!(
+            !src.exists(),
+            "Source file still exists at {}",
+            src.display()
+        );
+
+        // Check that the destination file exists and has the correct content
+        assert!(
+            dest.exists(),
+            "Destination file does not exist at {}",
+            dest.display()
+        );
+        let moved_content = fs::read_to_string(dest_path).unwrap();
+        assert_eq!(
+            moved_content, expected_content,
+            "File content doesn't match after move"
+        );
+    }
+
+    pub fn assert_error_with_msg(result: anyhow::Result<()>, msg: &str) {
+        assert!(result.is_err(), "Expected an error, but got success");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains(msg),
+            "Error message doesn't mention that source doesn't exist: {}",
+            err_msg
+        );
+    }
+
+    fn create_temp_file<P: AsRef<Path>>(dir: P, name: &str, content: &str) -> PathBuf {
+        let path = dir.as_ref().join(name);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(&path, content).unwrap();
+        path
+    }
+
+    #[test]
+    fn move_file_with_absolute_path() {
+        let work_dir = tempdir().unwrap();
+        let src_content = "This is a test file";
+        let src_path = create_temp_file(work_dir.path(), "a", src_content);
+        let dest_path = work_dir.path().join("b");
+
+        move_file(&src_path, &dest_path, None).unwrap();
+        assert_file_moved(&src_path, &dest_path, src_content);
+    }
+
+    #[test]
+    #[serial]
+    fn move_file_with_relative_paths() {
+        let work_dir = tempdir().unwrap();
+        std::env::set_current_dir(&work_dir).unwrap();
+        let src_content = "This is a test file";
+        fs::write("a", src_content).unwrap();
+
+        move_file("a", "b", None).unwrap();
+        assert_file_moved("a", "b", src_content);
+    }
+
+    #[test]
+    fn move_file_overwrites() {
+        let work_dir = tempdir().unwrap();
+        let src_content = "This is a test file";
+        let src_path = create_temp_file(work_dir.path(), "a", src_content);
+        let dest_path = create_temp_file(work_dir.path(), "b", "This is a different file");
+
+        move_file(&src_path, &dest_path, None).unwrap();
+        assert_file_moved(&src_path, &dest_path, src_content);
+    }
+
+    #[test]
+    fn move_file_fails_with_nonexistent_source() {
+        let work_dir = tempdir().unwrap();
+        let src_path = work_dir.path().join("a");
+        let dest_content = "This is a test file";
+        let dest_path = create_temp_file(work_dir.path(), "b", dest_content);
+
+        assert!(!src_path.exists(), "Source file should not exist initially");
+        assert_error_with_msg(
+            move_file(&src_path, "/dest/does/not/matter", None),
+            "does not exist",
+        );
+        assert_eq!(
+            fs::read_to_string(dest_path).unwrap(),
+            dest_content,
+            "Destination file content should remain unchanged"
+        );
+    }
+
+    #[test]
+    fn move_file_creates_intermediate_directories() {
+        let work_dir = tempdir().unwrap();
+        let src_content = "This is a test file";
+        let src_path = create_temp_file(work_dir.path(), "a", src_content);
+        let dest_path = work_dir
+            .path()
+            .join("b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z");
+
+        move_file(&src_path, &dest_path, None).unwrap();
+        assert_file_moved(&src_path, &dest_path, src_content);
+    }
+
+    #[test]
+    fn move_file_fails_when_cant_create_intermediate_directories() {
+        let work_dir = tempdir().unwrap();
+        let src_content = "This is a test file";
+        let src_path = create_temp_file(work_dir.path(), "a", src_content);
+        create_temp_file(work_dir.path(), "b/c/d", "");
+        let dest_path = work_dir
+            .path()
+            .join("b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z");
+
+        assert_error_with_msg(move_file(&src_path, &dest_path, None), "Not a directory");
+        // assert_file_moved(&src_path, &dest_path, src_content);
+    }
 }

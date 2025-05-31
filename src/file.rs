@@ -1,5 +1,5 @@
 use crate::MoveOrCopy;
-use anyhow::ensure;
+use anyhow::{bail, ensure};
 use std::{fs, path::Path};
 
 pub(crate) fn move_or_copy_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
@@ -51,16 +51,20 @@ pub(crate) fn move_or_copy_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
             log::debug!("{acted}: '{}' => '{}'", src.display(), dest.display());
             return Ok(());
         }
-        Err(e) => {
+        Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
             let fallback = match move_or_copy {
                 MoveOrCopy::Move => "copy and delete",
                 MoveOrCopy::Copy => "copy",
             };
             log::debug!(
-                "Reflink '{}' and '{}' failed with {e:?} on different devices, falling back to {fallback}.",
+                "'{}' and '{}' are on different devices, falling back to {fallback}.",
                 src.display(),
                 dest.display()
             );
+        }
+        Err(e) => {
+            println!("Kind: {} Error: {e:?}", e.kind());
+            bail!(e);
         }
     }
 

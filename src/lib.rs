@@ -244,6 +244,17 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn copy_file_basic() {
+        let work_dir = tempdir().unwrap();
+        let src_content = "This is a test file";
+        let src_path = create_temp_file(work_dir.path(), "a", src_content);
+        let dest_path = work_dir.path().join("b");
+
+        run(&src_path, &dest_path, None, &MoveOrCopy::Copy).unwrap();
+        assert_file_copied(&src_path, &dest_path);
+    }
+
+    #[test]
     fn move_file_to_directory() {
         let work_dir = tempdir().unwrap();
         let src_content = "This is a test file";
@@ -256,7 +267,19 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn merge_directories() {
+    fn copy_file_to_directory() {
+        let work_dir = tempdir().unwrap();
+        let src_content = "This is a test file";
+        let src_name = "a";
+        let src_path = create_temp_file(&work_dir, src_name, src_content);
+        let dest_dir = work_dir.path().join("b/c/");
+
+        run(&src_path, &dest_dir, None, &MoveOrCopy::Copy).unwrap();
+        assert_file_copied(src_path, dest_dir.join(src_name));
+    }
+
+    #[test]
+    fn merge_directories_basic() {
         let src_dir = tempdir().unwrap();
         let src_rel_paths = [
             "file1",
@@ -275,6 +298,29 @@ pub(crate) mod tests {
             let src_path = src_dir.path().join(path);
             let dest_path = dest_dir.path().join(path);
             assert_file_moved(&src_path, &dest_path, &format!("From source: {path}"));
+        }
+    }
+
+    #[test]
+    fn copy_directories_basic() {
+        let src_dir = tempdir().unwrap();
+        let src_rel_paths = [
+            "file1",
+            "file2",
+            "subdir/subfile1",
+            "subdir/subfile2",
+            "subdir/nested/nested_file",
+        ];
+        for path in src_rel_paths {
+            create_temp_file(src_dir.path(), path, &format!("From source: {path}"));
+        }
+
+        let dest_dir = tempdir().unwrap();
+        run(&src_dir, &dest_dir, None, &MoveOrCopy::Copy).unwrap();
+        for path in src_rel_paths {
+            let src_path = src_dir.path().join(path);
+            let dest_path = dest_dir.path().join(path);
+            assert_file_copied(&src_path, &dest_path);
         }
     }
 }

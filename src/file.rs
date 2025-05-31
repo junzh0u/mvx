@@ -34,7 +34,12 @@ pub(crate) fn move_or_copy_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
 
     let result = match move_or_copy {
         MoveOrCopy::Move => fs::rename(src, dest),
-        MoveOrCopy::Copy => reflink::reflink(src, dest),
+        MoveOrCopy::Copy => {
+            if dest.exists() {
+                fs::remove_file(dest)?;
+            }
+            reflink::reflink(src, dest)
+        }
     };
 
     match result {
@@ -87,7 +92,10 @@ pub(crate) fn move_or_copy_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
         pb_bytes.finish_and_clear();
         mp.remove(&pb_bytes);
     } else {
-        fs_extra::file::move_file(src, dest, &copy_options)?;
+        match move_or_copy {
+            MoveOrCopy::Move => fs_extra::file::move_file(src, dest, &copy_options),
+            MoveOrCopy::Copy => fs_extra::file::copy(src, dest, &copy_options),
+        }?;
     }
     log::debug!("Moved: '{}' => '{}'", src.display(), dest.display());
     Ok(())
@@ -161,6 +169,18 @@ mod tests {
     }
 
     #[test]
+    #[serial]
+    fn copy_file_with_relative_paths() {
+        let work_dir = tempdir().unwrap();
+        std::env::set_current_dir(&work_dir).unwrap();
+        let src_content = "This is a test file";
+        fs::write("a", src_content).unwrap();
+
+        copy_file("a", "b", None).unwrap();
+        assert_file_copied("a", "b");
+    }
+
+    #[test]
     fn move_file_overwrites() {
         let work_dir = tempdir().unwrap();
         let src_content = "This is a test file";
@@ -169,6 +189,17 @@ mod tests {
 
         move_file(&src_path, &dest_path, None).unwrap();
         assert_file_moved(&src_path, &dest_path, src_content);
+    }
+
+    #[test]
+    fn copy_file_overwrites() {
+        let work_dir = tempdir().unwrap();
+        let src_content = "This is a test file";
+        let src_path = create_temp_file(work_dir.path(), "a", src_content);
+        let dest_path = create_temp_file(work_dir.path(), "b", "This is a different file");
+
+        copy_file(&src_path, &dest_path, None).unwrap();
+        assert_file_copied(&src_path, &dest_path);
     }
 
     #[test]
@@ -181,6 +212,25 @@ mod tests {
         assert!(!src_path.exists(), "Source file should not exist initially");
         assert_error_with_msg(
             move_file(&src_path, "/dest/does/not/matter", None),
+            "does not exist",
+        );
+        assert_eq!(
+            fs::read_to_string(dest_path).unwrap(),
+            dest_content,
+            "Destination file content should remain unchanged"
+        );
+    }
+
+    #[test]
+    fn copy_file_fails_with_nonexistent_source() {
+        let work_dir = tempdir().unwrap();
+        let src_path = work_dir.path().join("a");
+        let dest_content = "This is a test file";
+        let dest_path = create_temp_file(work_dir.path(), "b", dest_content);
+
+        assert!(!src_path.exists(), "Source file should not exist initially");
+        assert_error_with_msg(
+            copy_file(&src_path, "/dest/does/not/matter", None),
             "does not exist",
         );
         assert_eq!(
@@ -204,6 +254,19 @@ mod tests {
     }
 
     #[test]
+    fn copy_file_creates_intermediate_directories() {
+        let work_dir = tempdir().unwrap();
+        let src_content = "This is a test file";
+        let src_path = create_temp_file(work_dir.path(), "a", src_content);
+        let dest_path = work_dir
+            .path()
+            .join("b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z");
+
+        copy_file(&src_path, &dest_path, None).unwrap();
+        assert_file_copied(&src_path, &dest_path);
+    }
+
+    #[test]
     fn move_file_fails_when_cant_create_intermediate_directories() {
         let work_dir = tempdir().unwrap();
         let src_content = "This is a test file";
@@ -214,6 +277,27 @@ mod tests {
             .join("b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z");
 
         assert_error_with_msg(move_file(&src_path, &dest_path, None), "Not a directory");
+        assert!(
+            src_path.exists(),
+            "Source file should not be moved when error occurs"
+        );
+        assert!(
+            !dest_path.exists(),
+            "Destination file should not be created when error occurs"
+        );
+    }
+
+    #[test]
+    fn copy_file_fails_when_cant_create_intermediate_directories() {
+        let work_dir = tempdir().unwrap();
+        let src_content = "This is a test file";
+        let src_path = create_temp_file(work_dir.path(), "a", src_content);
+        create_temp_file(work_dir.path(), "b/c/d", "");
+        let dest_path = work_dir
+            .path()
+            .join("b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z");
+
+        assert_error_with_msg(copy_file(&src_path, &dest_path, None), "Not a directory");
         assert!(
             src_path.exists(),
             "Source file should not be moved when error occurs"

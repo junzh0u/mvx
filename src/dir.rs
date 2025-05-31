@@ -99,12 +99,12 @@ fn collect_files_in_dir<P: AsRef<Path>>(dir: P) -> std::io::Result<Vec<PathBuf>>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::{assert_file_moved, create_temp_file};
+    use crate::tests::{assert_file_copied, assert_file_moved, create_temp_file};
     use std::collections::HashSet;
     use tempfile::tempdir;
 
     #[test]
-    fn merge_directories_works() {
+    fn merge_directory_basic() {
         let src_dir = tempdir().unwrap();
         let src_rel_paths = [
             "file1",
@@ -134,6 +134,48 @@ mod tests {
             let src_path = src_dir.path().join(path);
             let dest_path = dest_dir.path().join(path);
             assert_file_moved(&src_path, &dest_path, &format!("From source: {path}"));
+        }
+        for path in dest_rel_paths {
+            let dest_path = dest_dir.path().join(path);
+            assert!(
+                dest_path.exists(),
+                "File '{}' should exist",
+                dest_path.display()
+            );
+        }
+    }
+
+    #[test]
+    fn copy_directory_basic() {
+        let src_dir = tempdir().unwrap();
+        let src_rel_paths = [
+            "file1",
+            "file2",
+            "subdir/subfile1",
+            "subdir/subfile2",
+            "subdir/nested/nested_file",
+        ];
+        for path in src_rel_paths {
+            create_temp_file(src_dir.path(), path, &format!("From source: {path}"));
+        }
+
+        let dest_dir = tempdir().unwrap();
+        let dest_rel_paths = [
+            "file1",
+            "file3",
+            "subdir/subfile1",
+            "subdir/subfile3",
+            "subdir/nested/nested_file",
+        ];
+        for path in dest_rel_paths {
+            create_temp_file(dest_dir.path(), path, &format!("From dest: {path}"));
+        }
+
+        merge_or_copy_directory(&src_dir, &dest_dir, None, &MoveOrCopy::Copy).unwrap();
+        for path in src_rel_paths {
+            let src_path = src_dir.path().join(path);
+            let dest_path = dest_dir.path().join(path);
+            assert_file_copied(&src_path, &dest_path);
         }
         for path in dest_rel_paths {
             let dest_path = dest_dir.path().join(path);

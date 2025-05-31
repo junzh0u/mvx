@@ -3,10 +3,60 @@ use anyhow::ensure;
 use colored::Colorize;
 use indicatif::{HumanDuration, MultiProgress, ProgressBar, ProgressStyle};
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 
 mod dir;
 mod file;
+
+#[derive(Debug)]
+pub enum MoveOrCopy {
+    Move,
+    Copy,
+}
+
+pub fn init_logging(
+    verbosity: clap_verbosity_flag::Verbosity<clap_verbosity_flag::InfoLevel>,
+) -> Option<MultiProgress> {
+    let mp = (verbosity.log_level() >= Some(log::Level::Info)).then(MultiProgress::new);
+    let mp_clone = mp.clone();
+
+    env_logger::Builder::new()
+        .filter_level(verbosity.log_level_filter())
+        .format(move |buf, record| {
+            let ts = chrono::Local::now().to_rfc3339().bold();
+
+            let file_and_line = format!(
+                "[{}:{}]",
+                record
+                    .file()
+                    .map(Path::new)
+                    .and_then(Path::file_name)
+                    .unwrap_or_default()
+                    .display(),
+                record.line().unwrap_or(0),
+            )
+            .italic();
+            let level = match record.level() {
+                log::Level::Error => "ERROR".red(),
+                log::Level::Warn => "WARN ".yellow(),
+                log::Level::Info => "INFO ".green(),
+                log::Level::Debug => "DEBUG".blue(),
+                log::Level::Trace => "TRACE".magenta(),
+            }
+            .bold();
+
+            let msg = format!("{ts} {file_and_line:12} {level} {}", record.args());
+
+            match &mp_clone {
+                Some(mp) => mp.println(msg),
+                None => writeln!(buf, "{msg}"),
+            }
+        })
+        .init();
+
+    mp
+}
 
 /// # Errors
 ///
@@ -15,14 +65,16 @@ pub fn run<Src: AsRef<Path>, Dest: AsRef<Path>>(
     src: Src,
     dest: Dest,
     mp: Option<&MultiProgress>,
+    move_or_copy: &MoveOrCopy,
 ) -> anyhow::Result<()> {
     let src = src.as_ref();
     let dest = dest.as_ref();
     log::trace!(
-        "run('{}', '{}', {:?})",
+        "run('{}', '{}', {:?}, {:?})",
         src.display(),
         dest.display(),
         mp.map(|_| "MultiProgress"),
+        move_or_copy,
     );
     let start = std::time::Instant::now();
     let pb_info = mp.map(|mp| {
@@ -48,17 +100,25 @@ pub fn run<Src: AsRef<Path>, Dest: AsRef<Path>>(
             }
         }
         if let Some(pb) = &pb_info {
+            let acting = match move_or_copy {
+                MoveOrCopy::Move => "Moving",
+                MoveOrCopy::Copy => "Copying",
+            };
             pb.set_message(format!(
-                "Moving: '{}' => '{}'",
+                "{acting}: '{}' => '{}'",
                 src.display(),
                 dest.display(),
             ));
         }
-        file::move_file(src, &dest, mp)?;
+        file::move_or_copy_file(src, &dest, mp, move_or_copy)?;
         if let Some(pb) = &pb_info {
             pb.set_style(ProgressStyle::with_template("{msg}")?);
+            let acted = match move_or_copy {
+                MoveOrCopy::Move => "Moved",
+                MoveOrCopy::Copy => "Copied",
+            };
             pb.finish_with_message(format!(
-                "{} Moved in {}: '{}' => '{}'",
+                "{} {acted} in {}: '{}' => '{}'",
                 "→".green().bold(),
                 HumanDuration(start.elapsed()),
                 src.display(),
@@ -76,17 +136,25 @@ pub fn run<Src: AsRef<Path>, Dest: AsRef<Path>>(
             fs::create_dir_all(dest)?;
         }
         if let Some(pb) = &pb_info {
+            let acting = match move_or_copy {
+                MoveOrCopy::Move => "Merging",
+                MoveOrCopy::Copy => "Copying",
+            };
             pb.set_message(format!(
-                "Merging: '{}' => '{}'",
+                "{acting}: '{}' => '{}'",
                 src.display(),
                 dest.display(),
             ));
         }
-        dir::merge_directories(src, dest, mp)?;
+        dir::merge_or_copy_directory(src, dest, mp, move_or_copy)?;
         if let Some(pb) = &pb_info {
             pb.set_style(ProgressStyle::with_template("{msg}")?);
+            let acted = match move_or_copy {
+                MoveOrCopy::Move => "Merged",
+                MoveOrCopy::Copy => "Copied",
+            };
             pb.finish_with_message(format!(
-                "{} Merged in {}: '{}' => '{}'",
+                "{} {acted} in {}: '{}' => '{}'",
                 "↣".green().bold(),
                 HumanDuration(start.elapsed()),
                 src.display(),
@@ -142,14 +210,37 @@ pub(crate) mod tests {
         );
     }
 
+    pub(crate) fn assert_file_copied<Src: AsRef<Path>, Dest: AsRef<Path>>(
+        src_path: Src,
+        dest_path: Dest,
+    ) {
+        let src = src_path.as_ref();
+        let dest = dest_path.as_ref();
+        assert!(
+            src.exists(),
+            "Source file does not exists at {}",
+            src.display()
+        );
+        assert!(
+            dest.exists(),
+            "Destination file does not exist at {}",
+            dest.display()
+        );
+        assert_eq!(
+            fs::read_to_string(src).unwrap(),
+            fs::read_to_string(dest_path).unwrap(),
+            "File content doesn't match after copy"
+        );
+    }
+
     #[test]
-    fn move_file() {
+    fn move_file_basic() {
         let work_dir = tempdir().unwrap();
         let src_content = "This is a test file";
         let src_path = create_temp_file(work_dir.path(), "a", src_content);
         let dest_path = work_dir.path().join("b");
 
-        run(&src_path, &dest_path, None).unwrap();
+        run(&src_path, &dest_path, None, &MoveOrCopy::Move).unwrap();
         assert_file_moved(&src_path, &dest_path, src_content);
     }
 
@@ -161,7 +252,7 @@ pub(crate) mod tests {
         let src_path = create_temp_file(&work_dir, src_name, src_content);
         let dest_dir = work_dir.path().join("b/c/");
 
-        run(&src_path, &dest_dir, None).unwrap();
+        run(&src_path, &dest_dir, None, &MoveOrCopy::Move).unwrap();
         assert_file_moved(src_path, dest_dir.join(src_name), src_content);
     }
 
@@ -180,7 +271,7 @@ pub(crate) mod tests {
         }
 
         let dest_dir = tempdir().unwrap();
-        run(&src_dir, &dest_dir, None).unwrap();
+        run(&src_dir, &dest_dir, None, &MoveOrCopy::Move).unwrap();
         for path in src_rel_paths {
             let src_path = src_dir.path().join(path);
             let dest_path = dest_dir.path().join(path);

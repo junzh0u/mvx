@@ -1,17 +1,24 @@
+use crate::MoveOrCopy;
+use anyhow::ensure;
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 
-use anyhow::ensure;
-
-pub(crate) fn merge_directories<Src: AsRef<Path>, Dest: AsRef<Path>>(
+pub(crate) fn merge_or_copy_directory<Src: AsRef<Path>, Dest: AsRef<Path>>(
     src: Src,
     dest: Dest,
     mp: Option<&indicatif::MultiProgress>,
+    move_or_copy: &MoveOrCopy,
 ) -> anyhow::Result<()> {
     let src = src.as_ref();
     let dest = dest.as_ref();
+    log::trace!(
+        "merge_or_copy_directory('{}', '{}', {move_or_copy:?})",
+        src.display(),
+        dest.display()
+    );
+
     ensure!(src.exists(), "Source '{}' does not exist", src.display());
     ensure!(
         src.is_dir(),
@@ -24,11 +31,6 @@ pub(crate) fn merge_directories<Src: AsRef<Path>, Dest: AsRef<Path>>(
         dest.display()
     );
 
-    log::trace!(
-        "merge_directories('{}', '{}')",
-        src.display(),
-        dest.display()
-    );
     let files = collect_files_in_dir(src)?;
     let pb_files = mp.map(|mp| {
         mp.add(
@@ -46,12 +48,16 @@ pub(crate) fn merge_directories<Src: AsRef<Path>, Dest: AsRef<Path>>(
         if let Some(pb) = &pb_files {
             pb.set_message(rel_path.display().to_string());
         }
-        crate::file::move_file(&file, &dest_file, mp)?;
+        crate::file::move_or_copy_file(&file, &dest_file, mp, move_or_copy)?;
         if let Some(pb) = &pb_files {
             pb.inc(1);
         }
     }
-    remove_empty_dir(src)?;
+
+    match move_or_copy {
+        MoveOrCopy::Move => remove_empty_dir(src)?,
+        MoveOrCopy::Copy => (),
+    }
 
     if let Some(pb) = &pb_files {
         pb.finish_and_clear();
@@ -123,7 +129,7 @@ mod tests {
             create_temp_file(dest_dir.path(), path, &format!("From dest: {path}"));
         }
 
-        merge_directories(&src_dir, &dest_dir, None).unwrap();
+        merge_or_copy_directory(&src_dir, &dest_dir, None, &MoveOrCopy::Move).unwrap();
         for path in src_rel_paths {
             let src_path = src_dir.path().join(path);
             let dest_path = dest_dir.path().join(path);

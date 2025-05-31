@@ -22,7 +22,7 @@ fn main() {
     let cli = Cli::parse();
     let mp = init_logging(cli.verbosity);
 
-    if let Err(e) = run(&cli.src, &cli.dest, mp.as_ref(), &MoveOrCopy::Move) {
+    if let Err(e) = run(&cli.src, &cli.dest, mp.as_ref(), &MoveOrCopy::Copy) {
         eprintln!("{} {:?}", "✗".red().bold(), e);
         std::process::exit(1);
     }

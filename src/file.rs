@@ -42,6 +42,10 @@ pub(crate) fn move_or_copy_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
         }
     };
 
+    let fallback = match move_or_copy {
+        MoveOrCopy::Move => "copy and delete",
+        MoveOrCopy::Copy => "copy",
+    };
     match result {
         Ok(()) => {
             let acted = match move_or_copy {
@@ -52,20 +56,18 @@ pub(crate) fn move_or_copy_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
             return Ok(());
         }
         Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
-            let fallback = match move_or_copy {
-                MoveOrCopy::Move => "copy and delete",
-                MoveOrCopy::Copy => "copy",
-            };
             log::debug!(
                 "'{}' and '{}' are on different devices, falling back to {fallback}.",
                 src.display(),
                 dest.display()
             );
         }
-        Err(e) => {
-            println!("Kind: {} Error: {e:?}", e.kind());
-            bail!(e);
+        Err(e) if e.raw_os_error().map(|e| e == 95) == Some(true) => {
+            log::debug!(
+                "Raw OS error 95 indicates operation not supported, falling back to {fallback}. Full error: {e:?}",
+            );
         }
+        Err(e) => bail!(e),
     }
 
     let copy_options = fs_extra::file::CopyOptions::new().overwrite(true);

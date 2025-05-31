@@ -482,6 +482,7 @@ dependencies = [
  "env_logger",
  "fs_extra",
  "indicatif",
+ "libc",
  "log",
  "reflink",
  "serial_test",

@@ -62,10 +62,8 @@ pub(crate) fn move_or_copy_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
                 dest.display()
             );
         }
-        Err(e) if e.raw_os_error().map(|e| e == 95) == Some(true) => {
-            log::debug!(
-                "Raw OS error 95 indicates operation not supported, falling back to {fallback}. Full error: {e:?}",
-            );
+        Err(e) if e.raw_os_error().map(|e| e == libc::ENOTSUP) == Some(true) => {
+            log::debug!("Operation not supported, falling back to {fallback}. Full error: {e:?}");
         }
         Err(e) => bail!(e),
     }

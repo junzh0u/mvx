@@ -20,7 +20,7 @@ pub struct Cli {
 
 fn main() {
     let cli = Cli::parse();
-    let mp = init_logging(cli.verbosity);
+    let mp = init_logging(cli.verbosity.log_level_filter());
 
     if let Err(e) = run(&cli.src, &cli.dest, mp.as_ref(), &MoveOrCopy::Move) {
         eprintln!("{} {:?}", "✗".red().bold(), e);

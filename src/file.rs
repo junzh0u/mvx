@@ -58,6 +58,7 @@ pub(crate) fn move_or_copy_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
             );
         }
         Err(e) => {
+            log::debug!("{e:?}");
             bail!(e);
         }
     }

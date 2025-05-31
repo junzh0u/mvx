@@ -2,6 +2,7 @@ use anyhow::bail;
 use anyhow::ensure;
 use colored::Colorize;
 use indicatif::{HumanDuration, MultiProgress, ProgressBar, ProgressStyle};
+use log::LevelFilter;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -15,14 +16,12 @@ pub enum MoveOrCopy {
     Copy,
 }
 
-pub fn init_logging(
-    verbosity: clap_verbosity_flag::Verbosity<clap_verbosity_flag::InfoLevel>,
-) -> Option<MultiProgress> {
-    let mp = (verbosity.log_level() >= Some(log::Level::Info)).then(MultiProgress::new);
+pub fn init_logging(level_filter: LevelFilter) -> Option<MultiProgress> {
+    let mp = (level_filter >= LevelFilter::Info).then(MultiProgress::new);
     let mp_clone = mp.clone();
 
     env_logger::Builder::new()
-        .filter_level(verbosity.log_level_filter())
+        .filter_level(level_filter)
         .format(move |buf, record| {
             let ts = chrono::Local::now().to_rfc3339().bold();
 

@@ -57,10 +57,7 @@ pub fn init_logging(level_filter: LevelFilter) -> Option<MultiProgress> {
     mp
 }
 
-/// # Errors
-///
-/// Will return `Err` if move/merge fails for any reason.
-pub fn run<Src: AsRef<Path>, Dest: AsRef<Path>>(
+fn run<Src: AsRef<Path>, Dest: AsRef<Path>>(
     src: Src,
     dest: Dest,
     mp: Option<&MultiProgress>,
@@ -169,6 +166,66 @@ pub fn run<Src: AsRef<Path>, Dest: AsRef<Path>>(
     Ok(())
 }
 
+/// # Errors
+///
+/// Will return `Err` if move/merge fails for any reason.
+pub fn run_batch<Src: AsRef<Path>, Dest: AsRef<Path>>(
+    srcs: Vec<Src>,
+    dest: Dest,
+    mp: Option<&MultiProgress>,
+    move_or_copy: &MoveOrCopy,
+) -> anyhow::Result<()> {
+    let dest = dest.as_ref();
+    log::trace!(
+        "run_batch('{:?}', '{}', {:?}, {:?})",
+        srcs.iter()
+            .map(|s| s.as_ref().display())
+            .collect::<Vec<_>>(),
+        dest.display(),
+        mp.map(|_| "MultiProgress"),
+        move_or_copy,
+    );
+
+    let pb_batch: Option<indicatif::ProgressBar> = if srcs.len() > 1 {
+        ensure!(
+            dest.is_dir(),
+            "When copying multiple sources, the destination must be a directory.",
+        );
+        if let Some(mp) = mp {
+            Some(
+                mp.add(
+                    indicatif::ProgressBar::new(srcs.len() as u64).with_style(
+                        indicatif::ProgressStyle::with_template(
+                            "[{bar:40.cyan/blue}] {pos}/{len} {msg}",
+                        )?
+                        .progress_chars("=>-"),
+                    ),
+                ),
+            )
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    for src in srcs {
+        let src = src.as_ref();
+        if let Some(pb) = &pb_batch {
+            pb.set_message(src.display().to_string());
+        }
+        run(src, dest, mp, move_or_copy)?;
+        if let Some(pb) = &pb_batch {
+            pb.inc(1);
+        }
+    }
+    if let Some(pb) = &pb_batch {
+        pb.finish_and_clear();
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -209,6 +266,24 @@ pub(crate) mod tests {
         );
     }
 
+    pub(crate) fn assert_file_not_moved<Src: AsRef<Path>, Dest: AsRef<Path>>(
+        src_path: Src,
+        dest_path: Dest,
+    ) {
+        let src = src_path.as_ref();
+        let dest = dest_path.as_ref();
+        assert!(
+            src.exists(),
+            "Source file does not exist at {}",
+            src.display()
+        );
+        assert!(
+            !dest.exists(),
+            "Destination file should not exist at {}",
+            dest.display()
+        );
+    }
+
     pub(crate) fn assert_file_copied<Src: AsRef<Path>, Dest: AsRef<Path>>(
         src_path: Src,
         dest_path: Dest,
@@ -232,6 +307,16 @@ pub(crate) mod tests {
         );
     }
 
+    pub(crate) fn assert_error_with_msg(result: anyhow::Result<()>, msg: &str) {
+        assert!(result.is_err(), "Expected an error, but got success");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains(msg),
+            "Error message doesn't mention that source doesn't exist: {}",
+            err_msg
+        );
+    }
+
     #[test]
     fn move_file_basic() {
         let work_dir = tempdir().unwrap();
@@ -241,6 +326,45 @@ pub(crate) mod tests {
 
         run(&src_path, &dest_path, None, &MoveOrCopy::Move).unwrap();
         assert_file_moved(&src_path, &dest_path, src_content);
+    }
+
+    #[test]
+    fn move_multiple_files() {
+        let work_dir = tempdir().unwrap();
+        let src_content = "This is a test file";
+        let src_paths = vec![
+            create_temp_file(work_dir.path(), "a", src_content),
+            create_temp_file(work_dir.path(), "b", src_content),
+        ];
+        let dest_dir = work_dir.path().join("dest");
+        fs::create_dir_all(&dest_dir).unwrap();
+
+        run_batch(src_paths.clone(), &dest_dir, None, &MoveOrCopy::Move).unwrap();
+        for src_path in src_paths {
+            let dest_path = dest_dir.join(src_path.file_name().unwrap());
+            assert_file_moved(&src_path, &dest_path, src_content);
+        }
+    }
+
+    #[test]
+    fn move_multiple_files_fails_if_dest_not_dir() {
+        let work_dir = tempdir().unwrap();
+        let src_content = "This is a test file";
+        let src_paths = vec![
+            create_temp_file(work_dir.path(), "a", src_content),
+            create_temp_file(work_dir.path(), "b", src_content),
+        ];
+        let dest_dir = work_dir.path().join("dest");
+        // fs::create_dir_all(&dest_dir).unwrap();
+
+        assert_error_with_msg(
+            run_batch(src_paths.clone(), &dest_dir, None, &MoveOrCopy::Move),
+            "When copying multiple sources, the destination must be a directory.",
+        );
+        for src_path in src_paths {
+            let dest_path = dest_dir.join(src_path.file_name().unwrap());
+            assert_file_not_moved(&src_path, &dest_path);
+        }
     }
 
     #[test]
@@ -299,6 +423,34 @@ pub(crate) mod tests {
             let dest_path = dest_dir.path().join(path);
             assert_file_moved(&src_path, &dest_path, &format!("From source: {path}"));
         }
+    }
+
+    #[test]
+    fn merge_multiple_directories() {
+        let src_num = 5;
+        let src_dirs = (0..src_num)
+            .filter_map(|_| tempdir().ok())
+            .collect::<Vec<tempfile::TempDir>>();
+        let src_rel_paths = (0..src_num)
+            .map(|i| format! {"nested{i}/file{i}"})
+            .collect::<Vec<String>>();
+        (0..src_num).for_each(|i| {
+            create_temp_file(&src_dirs[i], &src_rel_paths[i], &format!("content{i}"));
+        });
+
+        let dest_dir = tempdir().unwrap();
+        run_batch(
+            src_dirs.iter().collect(),
+            &dest_dir,
+            None,
+            &MoveOrCopy::Move,
+        )
+        .unwrap();
+        (0..src_num).for_each(|i| {
+            let src_path = src_dirs[i].path().join(&src_rel_paths[i]);
+            let dest_path = dest_dir.path().join(&src_rel_paths[i]);
+            assert_file_moved(&src_path, &dest_path, &format!("content{i}"));
+        });
     }
 
     #[test]

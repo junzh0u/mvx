@@ -104,7 +104,10 @@ pub(crate) fn move_or_copy_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::{assert_file_copied, assert_file_moved, create_temp_file};
+    use crate::tests::{
+        assert_error_with_msg, assert_file_copied, assert_file_moved, assert_file_not_moved,
+        create_temp_file,
+    };
     use serial_test::serial;
     use std::fs;
     use tempfile::tempdir;
@@ -123,16 +126,6 @@ mod tests {
         mp: Option<&indicatif::MultiProgress>,
     ) -> anyhow::Result<()> {
         move_or_copy_file(src, dest, mp, &MoveOrCopy::Copy)
-    }
-
-    fn assert_error_with_msg(result: anyhow::Result<()>, msg: &str) {
-        assert!(result.is_err(), "Expected an error, but got success");
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains(msg),
-            "Error message doesn't mention that source doesn't exist: {}",
-            err_msg
-        );
     }
 
     #[test]
@@ -277,14 +270,7 @@ mod tests {
             .join("b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z");
 
         assert_error_with_msg(move_file(&src_path, &dest_path, None), "Not a directory");
-        assert!(
-            src_path.exists(),
-            "Source file should not be moved when error occurs"
-        );
-        assert!(
-            !dest_path.exists(),
-            "Destination file should not be created when error occurs"
-        );
+        assert_file_not_moved(&src_path, &dest_path);
     }
 
     #[test]
@@ -298,13 +284,6 @@ mod tests {
             .join("b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z");
 
         assert_error_with_msg(copy_file(&src_path, &dest_path, None), "Not a directory");
-        assert!(
-            src_path.exists(),
-            "Source file should not be moved when error occurs"
-        );
-        assert!(
-            !dest_path.exists(),
-            "Destination file should not be created when error occurs"
-        );
+        assert_file_not_moved(&src_path, &dest_path);
     }
 }

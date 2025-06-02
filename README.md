@@ -2,28 +2,18 @@
 
 `mvx`/`cpx` is a command-line utility that extends the standard `mv`/`cp` command with progress bars and enhanced features.
 
-## Features
-
-- **Progress Bars**: Visual feedback during file operations
-- **Directory Merging**: Intelligently merges directories instead of replacing them
-- **Cross-device Moves**: Handles moves/copies between filesystems with progress indication
-- **Auto-create Directories**: Creates destination directories as needed
-
 For basic file operations, `mvx`/`cpx` behaves the same as the standard `mv`/`cp` command.
 
-## Key Differences from `mv`/`cp`
+## Key Features / Differences from `mv`/`cp`
 
 ### Directory Handling
 When moving/copying a directory to an existing directory, `mvx`/`cpx` merges the contents rather than replacing or nesting the directory. Files with the same name are overwritten, but unique files in the destination are preserved.
 
-### Progress Visualization
-For cross-device file operations, `mvx`/`cpx` displays progress bars showing:
-- Bytes transferred
-- Transfer speed
-- Estimated time remaining
-
 ### Path Creation
 `mvx`/`cpx` automatically creates any necessary destination directories.
+
+### Progress Visualization
+For cross-device file operations, `mvx`/`cpx` displays progress bars, which can be suppressed via `-q` flag.
 
 ## Usage
 

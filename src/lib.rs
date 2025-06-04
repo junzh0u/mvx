@@ -170,7 +170,7 @@ fn run<Src: AsRef<Path>, Dest: AsRef<Path>>(
 ///
 /// Will return `Err` if move/merge fails for any reason.
 pub fn run_batch<Src: AsRef<Path>, Dest: AsRef<Path>>(
-    srcs: Vec<Src>,
+    srcs: &[Src],
     dest: Dest,
     mp: Option<&MultiProgress>,
     move_or_copy: &MoveOrCopy,
@@ -339,7 +339,7 @@ pub(crate) mod tests {
         let dest_dir = work_dir.path().join("dest");
         fs::create_dir_all(&dest_dir).unwrap();
 
-        run_batch(src_paths.clone(), &dest_dir, None, &MoveOrCopy::Move).unwrap();
+        run_batch(&src_paths, &dest_dir, None, &MoveOrCopy::Move).unwrap();
         for src_path in src_paths {
             let dest_path = dest_dir.join(src_path.file_name().unwrap());
             assert_file_moved(&src_path, &dest_path, src_content);
@@ -358,7 +358,7 @@ pub(crate) mod tests {
         // fs::create_dir_all(&dest_dir).unwrap();
 
         assert_error_with_msg(
-            run_batch(src_paths.clone(), &dest_dir, None, &MoveOrCopy::Move),
+            run_batch(&src_paths, &dest_dir, None, &MoveOrCopy::Move),
             "When copying multiple sources, the destination must be a directory.",
         );
         for src_path in src_paths {
@@ -439,13 +439,7 @@ pub(crate) mod tests {
         });
 
         let dest_dir = tempdir().unwrap();
-        run_batch(
-            src_dirs.iter().collect(),
-            &dest_dir,
-            None,
-            &MoveOrCopy::Move,
-        )
-        .unwrap();
+        run_batch(&src_dirs, &dest_dir, None, &MoveOrCopy::Move).unwrap();
         (0..src_num).for_each(|i| {
             let src_path = src_dirs[i].path().join(&src_rel_paths[i]);
             let dest_path = dest_dir.path().join(&src_rel_paths[i]);

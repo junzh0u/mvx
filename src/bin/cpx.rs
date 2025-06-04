@@ -24,7 +24,7 @@ fn main() {
     let mp = init_logging(cli.verbosity.log_level_filter());
     log::trace!("{cli:?}");
 
-    if let Err(e) = run_batch(cli.srcs, cli.dest, mp.as_ref(), &MoveOrCopy::Copy) {
+    if let Err(e) = run_batch(&cli.srcs, &cli.dest, mp.as_ref(), &MoveOrCopy::Copy) {
         eprintln!("{} {:?}", "✗".red().bold(), e);
         std::process::exit(1);
     }

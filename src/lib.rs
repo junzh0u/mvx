@@ -169,12 +169,13 @@ fn run<Src: AsRef<Path>, Dest: AsRef<Path>>(
 /// # Errors
 ///
 /// Will return `Err` if move/merge fails for any reason.
-pub fn run_batch<Src: AsRef<Path>, Dest: AsRef<Path>>(
-    srcs: &[Src],
+pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
+    srcs: Srcs,
     dest: Dest,
     mp: Option<&MultiProgress>,
     move_or_copy: &MoveOrCopy,
 ) -> anyhow::Result<()> {
+    let srcs = srcs.as_ref();
     let dest = dest.as_ref();
     log::trace!(
         "run_batch('{:?}', '{}', {:?}, {:?})",

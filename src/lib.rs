@@ -115,16 +115,13 @@ fn run<Src: AsRef<Path>, Dest: AsRef<Path>>(
                 MoveOrCopy::Copy => "Copied",
             };
             pb.finish_and_clear();
-            if let Some(mp) = mp {
-                mp.remove(pb);
-                mp.println(format!(
-                    "{} {acted} in {}: '{}' => '{}'",
-                    "→".green().bold(),
-                    HumanDuration(start.elapsed()),
-                    src.display(),
-                    dest.display(),
-                ))?;
-            }
+            pb.println(format!(
+                "{} {acted} in {}: '{}' => '{}'",
+                "→".green().bold(),
+                HumanDuration(start.elapsed()),
+                src.display(),
+                dest.display(),
+            ));
         }
     } else if src.is_dir() {
         if dest.exists() {
@@ -154,16 +151,13 @@ fn run<Src: AsRef<Path>, Dest: AsRef<Path>>(
                 MoveOrCopy::Copy => "Copied",
             };
             pb.finish_and_clear();
-            if let Some(mp) = mp {
-                mp.remove(pb);
-                mp.println(format!(
-                    "{} {acted} in {}: '{}' => '{}'",
-                    "↣".green().bold(),
-                    HumanDuration(start.elapsed()),
-                    src.display(),
-                    dest.display(),
-                ))?;
-            }
+            pb.println(format!(
+                "{} {acted} in {}: '{}' => '{}'",
+                "↣".green().bold(),
+                HumanDuration(start.elapsed()),
+                src.display(),
+                dest.display(),
+            ));
         }
     } else {
         bail!(
@@ -230,9 +224,6 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
     }
     if let Some(pb) = &pb_batch {
         pb.finish_and_clear();
-        if let Some(mp) = mp {
-            mp.remove(pb);
-        }
     }
 
     Ok(())

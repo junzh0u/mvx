@@ -61,9 +61,6 @@ pub(crate) fn merge_or_copy_directory<Src: AsRef<Path>, Dest: AsRef<Path>>(
 
     if let Some(pb) = &pb_files {
         pb.finish_and_clear();
-        if let Some(mp) = mp {
-            mp.remove(pb);
-        }
     }
 
     Ok(())

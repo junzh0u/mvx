@@ -90,7 +90,6 @@ pub(crate) fn move_or_copy_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
             }
         }?;
         pb_bytes.finish_and_clear();
-        mp.remove(&pb_bytes);
     } else {
         match move_or_copy {
             MoveOrCopy::Move => fs_extra::file::move_file(src, dest, &copy_options),

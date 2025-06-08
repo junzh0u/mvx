@@ -114,16 +114,16 @@ fn run<Src: AsRef<Path>, Dest: AsRef<Path>>(
                 MoveOrCopy::Move => "Moved",
                 MoveOrCopy::Copy => "Copied",
             };
-            log::info!(
-                "{} {acted} in {}: '{}' => '{}'",
-                "→".green().bold(),
-                HumanDuration(start.elapsed()),
-                src.display(),
-                dest.display(),
-            );
             pb.finish_and_clear();
             if let Some(mp) = mp {
                 mp.remove(pb);
+                mp.println(format!(
+                    "{} {acted} in {}: '{}' => '{}'",
+                    "→".green().bold(),
+                    HumanDuration(start.elapsed()),
+                    src.display(),
+                    dest.display(),
+                ))?;
             }
         }
     } else if src.is_dir() {
@@ -153,16 +153,16 @@ fn run<Src: AsRef<Path>, Dest: AsRef<Path>>(
                 MoveOrCopy::Move => "Merged",
                 MoveOrCopy::Copy => "Copied",
             };
-            log::info!(
-                "{} {acted} in {}: '{}' => '{}'",
-                "↣".green().bold(),
-                HumanDuration(start.elapsed()),
-                src.display(),
-                dest.display(),
-            );
             pb.finish_and_clear();
             if let Some(mp) = mp {
                 mp.remove(pb);
+                mp.println(format!(
+                    "{} {acted} in {}: '{}' => '{}'",
+                    "↣".green().bold(),
+                    HumanDuration(start.elapsed()),
+                    src.display(),
+                    dest.display(),
+                ))?;
             }
         }
     } else {

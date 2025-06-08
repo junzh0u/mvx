@@ -57,7 +57,6 @@ pub fn init_logging(level_filter: LevelFilter) -> Option<MultiProgress> {
     mp
 }
 
-#[allow(clippy::too_many_lines)]
 fn run<Src: AsRef<Path>, Dest: AsRef<Path>>(
     src: Src,
     dest: Dest,
@@ -109,7 +108,6 @@ fn run<Src: AsRef<Path>, Dest: AsRef<Path>>(
         }
         file::move_or_copy_file(src, &dest, mp, move_or_copy)?;
         if let Some(pb) = &pb_info {
-            pb.set_style(ProgressStyle::with_template("{msg}")?);
             let acted = match move_or_copy {
                 MoveOrCopy::Move => "Moved",
                 MoveOrCopy::Copy => "Copied",

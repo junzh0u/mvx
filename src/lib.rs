@@ -57,6 +57,7 @@ pub fn init_logging(level_filter: LevelFilter) -> Option<MultiProgress> {
     mp
 }
 
+#[allow(clippy::too_many_lines)]
 fn run<Src: AsRef<Path>, Dest: AsRef<Path>>(
     src: Src,
     dest: Dest,
@@ -113,13 +114,17 @@ fn run<Src: AsRef<Path>, Dest: AsRef<Path>>(
                 MoveOrCopy::Move => "Moved",
                 MoveOrCopy::Copy => "Copied",
             };
-            pb.finish_with_message(format!(
+            log::info!(
                 "{} {acted} in {}: '{}' => '{}'",
                 "→".green().bold(),
                 HumanDuration(start.elapsed()),
                 src.display(),
                 dest.display(),
-            ));
+            );
+            pb.finish_and_clear();
+            if let Some(mp) = mp {
+                mp.remove(pb);
+            }
         }
     } else if src.is_dir() {
         if dest.exists() {
@@ -144,18 +149,21 @@ fn run<Src: AsRef<Path>, Dest: AsRef<Path>>(
         }
         dir::merge_or_copy_directory(src, dest, mp, move_or_copy)?;
         if let Some(pb) = &pb_info {
-            pb.set_style(ProgressStyle::with_template("{msg}")?);
             let acted = match move_or_copy {
                 MoveOrCopy::Move => "Merged",
                 MoveOrCopy::Copy => "Copied",
             };
-            pb.finish_with_message(format!(
+            log::info!(
                 "{} {acted} in {}: '{}' => '{}'",
                 "↣".green().bold(),
                 HumanDuration(start.elapsed()),
                 src.display(),
                 dest.display(),
-            ));
+            );
+            pb.finish_and_clear();
+            if let Some(mp) = mp {
+                mp.remove(pb);
+            }
         }
     } else {
         bail!(
@@ -222,6 +230,9 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
     }
     if let Some(pb) = &pb_batch {
         pb.finish_and_clear();
+        if let Some(mp) = mp {
+            mp.remove(pb);
+        }
     }
 
     Ok(())

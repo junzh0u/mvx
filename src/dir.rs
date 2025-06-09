@@ -1,11 +1,11 @@
-use crate::MoveOrCopy;
+use crate::{MoveOrCopy, items_bar_style};
 use anyhow::ensure;
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 
-pub(crate) fn merge_or_copy_directory<Src: AsRef<Path>, Dest: AsRef<Path>>(
+pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
     src: Src,
     dest: Dest,
     mp: Option<&indicatif::MultiProgress>,
@@ -14,7 +14,7 @@ pub(crate) fn merge_or_copy_directory<Src: AsRef<Path>, Dest: AsRef<Path>>(
     let src = src.as_ref();
     let dest = dest.as_ref();
     log::trace!(
-        "merge_or_copy_directory('{}', '{}', {move_or_copy:?})",
+        "merge_or_copy('{}', '{}', {move_or_copy:?})",
         src.display(),
         dest.display()
     );
@@ -25,33 +25,30 @@ pub(crate) fn merge_or_copy_directory<Src: AsRef<Path>, Dest: AsRef<Path>>(
         "Source '{}' exists but is not a directory",
         src.display()
     );
-    ensure!(
-        !dest.exists() || dest.is_dir(),
-        "Destination '{}' already exists and is not a directory",
-        dest.display()
-    );
+
+    if dest.exists() {
+        ensure!(
+            dest.is_dir(),
+            "Destination '{}' already exists and is not a directory",
+            dest.display()
+        );
+    } else {
+        fs::create_dir_all(dest)?;
+    }
 
     let files = collect_files_in_dir(src)?;
     let pb_files = mp.map(|mp| {
-        mp.add(
-            indicatif::ProgressBar::new(files.len() as u64).with_style(
-                indicatif::ProgressStyle::with_template("[{bar:40.cyan/blue}] {pos}/{len} {msg}")
-                    .unwrap()
-                    .progress_chars("=>-"),
-            ),
-        )
+        mp.add(indicatif::ProgressBar::new(files.len() as u64).with_style(items_bar_style()))
     });
 
     for file in files {
         let rel_path = file.strip_prefix(src)?;
         let dest_file = dest.join(rel_path);
         if let Some(pb) = &pb_files {
+            pb.inc(1);
             pb.set_message(rel_path.display().to_string());
         }
-        crate::file::move_or_copy_file(&file, &dest_file, mp, move_or_copy)?;
-        if let Some(pb) = &pb_files {
-            pb.inc(1);
-        }
+        crate::file::move_or_copy(&file, &dest_file, mp, move_or_copy)?;
     }
 
     match move_or_copy {
@@ -126,7 +123,7 @@ mod tests {
             create_temp_file(dest_dir.path(), path, &format!("From dest: {path}"));
         }
 
-        merge_or_copy_directory(&src_dir, &dest_dir, None, &MoveOrCopy::Move).unwrap();
+        merge_or_copy(&src_dir, &dest_dir, None, &MoveOrCopy::Move).unwrap();
         for path in src_rel_paths {
             let src_path = src_dir.path().join(path);
             let dest_path = dest_dir.path().join(path);
@@ -168,7 +165,7 @@ mod tests {
             create_temp_file(dest_dir.path(), path, &format!("From dest: {path}"));
         }
 
-        merge_or_copy_directory(&src_dir, &dest_dir, None, &MoveOrCopy::Copy).unwrap();
+        merge_or_copy(&src_dir, &dest_dir, None, &MoveOrCopy::Copy).unwrap();
         for path in src_rel_paths {
             let src_path = src_dir.path().join(path);
             let dest_path = dest_dir.path().join(path);

@@ -2,16 +2,17 @@ use crate::MoveOrCopy;
 use anyhow::{bail, ensure};
 use std::{fs, path::Path};
 
-pub(crate) fn move_or_copy_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
+pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
     src: Src,
     dest: Dest,
     mp: Option<&indicatif::MultiProgress>,
     move_or_copy: &MoveOrCopy,
 ) -> anyhow::Result<()> {
     let src = src.as_ref();
-    let dest = dest.as_ref();
+    let mut dest = dest.as_ref().to_path_buf();
+
     log::trace!(
-        "move_or_copy_file('{}', '{}', {move_or_copy:?})",
+        "move_or_copy('{}', '{}', {move_or_copy:?})",
         src.display(),
         dest.display()
     );
@@ -22,23 +23,29 @@ pub(crate) fn move_or_copy_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
         "Source '{}' exists but is not a file",
         src.display()
     );
+
+    if dest.is_dir() || (!dest.exists() && dest.to_string_lossy().ends_with('/')) {
+        match src.file_name() {
+            Some(name) => dest.push(name),
+            None => bail!("Cannot get file name from '{}'", src.display()),
+        }
+    }
     ensure!(
         !dest.exists() || dest.is_file(),
         "Destination '{}' already exists and is not a file",
         dest.display()
     );
-
     if let Some(dest_parent) = dest.parent() {
         fs::create_dir_all(dest_parent)?;
     }
 
     let result = match move_or_copy {
-        MoveOrCopy::Move => fs::rename(src, dest),
+        MoveOrCopy::Move => fs::rename(src, &dest),
         MoveOrCopy::Copy => {
             if dest.exists() {
-                fs::remove_file(dest)?;
+                fs::remove_file(&dest)?;
             }
-            reflink::reflink(src, dest)
+            reflink::reflink(src, &dest)
         }
     };
 
@@ -83,17 +90,17 @@ pub(crate) fn move_or_copy_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
         };
         match move_or_copy {
             MoveOrCopy::Move => {
-                fs_extra::file::move_file_with_progress(src, dest, &copy_options, progress_handler)
+                fs_extra::file::move_file_with_progress(src, &dest, &copy_options, progress_handler)
             }
             MoveOrCopy::Copy => {
-                fs_extra::file::copy_with_progress(src, dest, &copy_options, progress_handler)
+                fs_extra::file::copy_with_progress(src, &dest, &copy_options, progress_handler)
             }
         }?;
         pb_bytes.finish_and_clear();
     } else {
         match move_or_copy {
-            MoveOrCopy::Move => fs_extra::file::move_file(src, dest, &copy_options),
-            MoveOrCopy::Copy => fs_extra::file::copy(src, dest, &copy_options),
+            MoveOrCopy::Move => fs_extra::file::move_file(src, &dest, &copy_options),
+            MoveOrCopy::Copy => fs_extra::file::copy(src, &dest, &copy_options),
         }?;
     }
     log::debug!("Moved: '{}' => '{}'", src.display(), dest.display());
@@ -116,7 +123,7 @@ mod tests {
         dest: Dest,
         mp: Option<&indicatif::MultiProgress>,
     ) -> anyhow::Result<()> {
-        move_or_copy_file(src, dest, mp, &MoveOrCopy::Move)
+        move_or_copy(src, dest, mp, &MoveOrCopy::Move)
     }
 
     fn copy_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
@@ -124,7 +131,7 @@ mod tests {
         dest: Dest,
         mp: Option<&indicatif::MultiProgress>,
     ) -> anyhow::Result<()> {
-        move_or_copy_file(src, dest, mp, &MoveOrCopy::Copy)
+        move_or_copy(src, dest, mp, &MoveOrCopy::Copy)
     }
 
     #[test]

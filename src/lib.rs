@@ -99,25 +99,13 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
             "Source path '{}' is neither a file nor directory.",
             src.display()
         );
+        let is_file = src.is_file();
 
         if let Some(pb) = &pb_batch {
             pb.inc(1);
             pb.set_message(format!(
                 "{}: '{}' => '{}'",
-                match move_or_copy {
-                    MoveOrCopy::Move =>
-                        if src.is_file() {
-                            "Moving"
-                        } else {
-                            "Merging"
-                        },
-                    MoveOrCopy::Copy =>
-                        if src.is_file() {
-                            "Copying"
-                        } else {
-                            "Copy-merging"
-                        },
-                },
+                start_msg(move_or_copy, is_file),
                 src.display(),
                 dest.display(),
             ));
@@ -133,21 +121,8 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
         if let Some(pb) = &pb_batch {
             pb.println(format!(
                 "{} {} in {}: '{}' => '{}'",
-                if src.is_file() { "→" } else { "↣" }.green().bold(),
-                match move_or_copy {
-                    MoveOrCopy::Move =>
-                        if src.is_file() {
-                            "Moved"
-                        } else {
-                            "Merged"
-                        },
-                    MoveOrCopy::Copy =>
-                        if src.is_file() {
-                            "Copied"
-                        } else {
-                            "Copy-merged"
-                        },
-                },
+                if is_file { "→" } else { "↣" }.green().bold(),
+                finish_msg(move_or_copy, is_file),
                 indicatif::HumanDuration(start.elapsed()),
                 src.display(),
                 dest.display(),
@@ -159,6 +134,24 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
     }
 
     Ok(())
+}
+
+fn start_msg(move_or_copy: &MoveOrCopy, is_file: bool) -> &str {
+    match (move_or_copy, is_file) {
+        (MoveOrCopy::Move, true) => "Moving",
+        (MoveOrCopy::Move, false) => "Merging",
+        (MoveOrCopy::Copy, true) => "Copying",
+        (MoveOrCopy::Copy, false) => "Copy-merging",
+    }
+}
+
+fn finish_msg(move_or_copy: &MoveOrCopy, is_file: bool) -> &str {
+    match (move_or_copy, is_file) {
+        (MoveOrCopy::Move, true) => "Moved",
+        (MoveOrCopy::Move, false) => "Merged",
+        (MoveOrCopy::Copy, true) => "Copied",
+        (MoveOrCopy::Copy, false) => "Copy-merged",
+    }
 }
 
 fn items_bar_style() -> indicatif::ProgressStyle {

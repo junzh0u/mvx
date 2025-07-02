@@ -36,7 +36,8 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
         fs::create_dir_all(dest)?;
     }
 
-    let files = collect_files_in_dir(src)?;
+    let mut files = collect_files_in_dir(src)?;
+    files.sort_by_key(|p| p.to_string_lossy().to_string());
     let pb_files = mp.map(|mp| {
         mp.add(indicatif::ProgressBar::new(files.len() as u64).with_style(items_bar_style()))
     });

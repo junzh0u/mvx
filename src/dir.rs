@@ -1,4 +1,4 @@
-use crate::{MoveOrCopy, items_bar_style};
+use crate::{MoveOrCopy, bytes_bar_style, spinner_style};
 use anyhow::ensure;
 use std::{
     fs,
@@ -38,8 +38,17 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
 
     let mut files = collect_files_in_dir(src)?;
     files.sort_by_key(|p| p.to_string_lossy().to_string());
+    let total_size = get_total_size_of_files(&files);
+
+    let pb_total_bytes =
+        mp.map(|mp| mp.add(indicatif::ProgressBar::new(total_size).with_style(bytes_bar_style())));
+
     let pb_files = mp.map(|mp| {
-        mp.add(indicatif::ProgressBar::new(files.len() as u64).with_style(items_bar_style()))
+        let pb = mp
+            .add(indicatif::ProgressBar::new(files.len() as u64))
+            .with_style(spinner_style(files.len()));
+        pb.enable_steady_tick(std::time::Duration::from_millis(100));
+        pb
     });
 
     for file in files {
@@ -49,7 +58,7 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
             pb.inc(1);
             pb.set_message(rel_path.display().to_string());
         }
-        crate::file::move_or_copy(&file, &dest_file, mp, move_or_copy)?;
+        crate::file::move_or_copy(&file, &dest_file, mp, pb_total_bytes.as_ref(), move_or_copy)?;
     }
 
     match move_or_copy {
@@ -89,6 +98,14 @@ fn collect_files_in_dir<P: AsRef<Path>>(dir: P) -> std::io::Result<Vec<PathBuf>>
             }
         })
         .collect())
+}
+
+fn get_total_size_of_files<P: AsRef<Path>>(files: &[P]) -> u64 {
+    files
+        .iter()
+        .filter_map(|f| fs::metadata(f).ok())
+        .map(|m| m.len())
+        .sum()
 }
 
 #[cfg(test)]

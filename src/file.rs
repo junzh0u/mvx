@@ -1,4 +1,4 @@
-use crate::MoveOrCopy;
+use crate::{MoveOrCopy, bytes_bar_style};
 use anyhow::{bail, ensure};
 use std::{fs, path::Path};
 
@@ -6,6 +6,7 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
     src: Src,
     dest: Dest,
     mp: Option<&indicatif::MultiProgress>,
+    pb_total_bytes: Option<&indicatif::ProgressBar>,
     move_or_copy: &MoveOrCopy,
 ) -> anyhow::Result<()> {
     let src = src.as_ref();
@@ -78,15 +79,14 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
     let copy_options = fs_extra::file::CopyOptions::new().overwrite(true);
     if let Some(mp) = mp {
         let pb_bytes = mp.add(
-            indicatif::ProgressBar::new(fs::metadata(src)?.len()).with_style(
-                indicatif::ProgressStyle::with_template(
-                    "[{bar:40.green/white}] {bytes}/{total_bytes} [{bytes_per_sec}] (ETA: {eta})",
-                )?
-                .progress_chars("=>-"),
-            ),
+            indicatif::ProgressBar::new(fs::metadata(src)?.len()).with_style(bytes_bar_style()),
         );
+        let init_pos = pb_total_bytes.map_or(0, indicatif::ProgressBar::position);
         let progress_handler = |transit: fs_extra::file::TransitProcess| {
             pb_bytes.set_position(transit.copied_bytes);
+            if let Some(pb) = pb_total_bytes {
+                pb.set_position(init_pos + transit.copied_bytes);
+            }
         };
         match move_or_copy {
             MoveOrCopy::Move => {
@@ -118,20 +118,12 @@ mod tests {
     use std::fs;
     use tempfile::tempdir;
 
-    fn move_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
-        src: Src,
-        dest: Dest,
-        mp: Option<&indicatif::MultiProgress>,
-    ) -> anyhow::Result<()> {
-        move_or_copy(src, dest, mp, &MoveOrCopy::Move)
+    fn move_file<Src: AsRef<Path>, Dest: AsRef<Path>>(src: Src, dest: Dest) -> anyhow::Result<()> {
+        move_or_copy(src, dest, None, None, &MoveOrCopy::Move)
     }
 
-    fn copy_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
-        src: Src,
-        dest: Dest,
-        mp: Option<&indicatif::MultiProgress>,
-    ) -> anyhow::Result<()> {
-        move_or_copy(src, dest, mp, &MoveOrCopy::Copy)
+    fn copy_file<Src: AsRef<Path>, Dest: AsRef<Path>>(src: Src, dest: Dest) -> anyhow::Result<()> {
+        move_or_copy(src, dest, None, None, &MoveOrCopy::Copy)
     }
 
     #[test]
@@ -141,7 +133,7 @@ mod tests {
         let src_path = create_temp_file(work_dir.path(), "a", src_content);
         let dest_path = work_dir.path().join("b");
 
-        move_file(&src_path, &dest_path, None).unwrap();
+        move_file(&src_path, &dest_path).unwrap();
         assert_file_moved(&src_path, &dest_path, src_content);
     }
 
@@ -151,7 +143,7 @@ mod tests {
         let src_path = create_temp_file(work_dir.path(), "a", "This is a test file");
         let dest_path = work_dir.path().join("b");
 
-        copy_file(&src_path, &dest_path, None).unwrap();
+        copy_file(&src_path, &dest_path).unwrap();
         assert_file_copied(&src_path, &dest_path);
     }
 
@@ -163,7 +155,7 @@ mod tests {
         let src_content = "This is a test file";
         fs::write("a", src_content).unwrap();
 
-        move_file("a", "b", None).unwrap();
+        move_file("a", "b").unwrap();
         assert_file_moved("a", "b", src_content);
     }
 
@@ -175,7 +167,7 @@ mod tests {
         let src_content = "This is a test file";
         fs::write("a", src_content).unwrap();
 
-        copy_file("a", "b", None).unwrap();
+        copy_file("a", "b").unwrap();
         assert_file_copied("a", "b");
     }
 
@@ -186,7 +178,7 @@ mod tests {
         let src_path = create_temp_file(work_dir.path(), "a", src_content);
         let dest_path = create_temp_file(work_dir.path(), "b", "This is a different file");
 
-        move_file(&src_path, &dest_path, None).unwrap();
+        move_file(&src_path, &dest_path).unwrap();
         assert_file_moved(&src_path, &dest_path, src_content);
     }
 
@@ -197,7 +189,7 @@ mod tests {
         let src_path = create_temp_file(work_dir.path(), "a", src_content);
         let dest_path = create_temp_file(work_dir.path(), "b", "This is a different file");
 
-        copy_file(&src_path, &dest_path, None).unwrap();
+        copy_file(&src_path, &dest_path).unwrap();
         assert_file_copied(&src_path, &dest_path);
     }
 
@@ -210,7 +202,7 @@ mod tests {
 
         assert!(!src_path.exists(), "Source file should not exist initially");
         assert_error_with_msg(
-            move_file(&src_path, "/dest/does/not/matter", None),
+            move_file(&src_path, "/dest/does/not/matter"),
             "does not exist",
         );
         assert_eq!(
@@ -229,7 +221,7 @@ mod tests {
 
         assert!(!src_path.exists(), "Source file should not exist initially");
         assert_error_with_msg(
-            copy_file(&src_path, "/dest/does/not/matter", None),
+            copy_file(&src_path, "/dest/does/not/matter"),
             "does not exist",
         );
         assert_eq!(
@@ -248,7 +240,7 @@ mod tests {
             .path()
             .join("b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z");
 
-        move_file(&src_path, &dest_path, None).unwrap();
+        move_file(&src_path, &dest_path).unwrap();
         assert_file_moved(&src_path, &dest_path, src_content);
     }
 
@@ -261,7 +253,7 @@ mod tests {
             .path()
             .join("b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z");
 
-        copy_file(&src_path, &dest_path, None).unwrap();
+        copy_file(&src_path, &dest_path).unwrap();
         assert_file_copied(&src_path, &dest_path);
     }
 
@@ -275,7 +267,7 @@ mod tests {
             .path()
             .join("b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z");
 
-        assert_error_with_msg(move_file(&src_path, &dest_path, None), "Not a directory");
+        assert_error_with_msg(move_file(&src_path, &dest_path), "Not a directory");
         assert_file_not_moved(&src_path, &dest_path);
     }
 
@@ -289,7 +281,7 @@ mod tests {
             .path()
             .join("b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z");
 
-        assert_error_with_msg(copy_file(&src_path, &dest_path, None), "Not a directory");
+        assert_error_with_msg(copy_file(&src_path, &dest_path), "Not a directory");
         assert_file_not_moved(&src_path, &dest_path);
     }
 }

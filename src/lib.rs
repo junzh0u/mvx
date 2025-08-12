@@ -82,13 +82,10 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
         );
     }
     let pb_batch = mp.map(|mp| {
-        let pb = mp.add(indicatif::ProgressBar::new(srcs.len() as u64));
-        if srcs.len() > 1 {
-            pb.set_style(items_bar_style());
-        } else {
-            pb.set_style(indicatif::ProgressStyle::default_spinner().tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"));
-            pb.enable_steady_tick(std::time::Duration::from_millis(100));
-        }
+        let pb = mp
+            .add(indicatif::ProgressBar::new(srcs.len() as u64))
+            .with_style(spinner_style(srcs.len()));
+        pb.enable_steady_tick(std::time::Duration::from_millis(100));
         pb
     });
 
@@ -113,7 +110,7 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
 
         let start = std::time::Instant::now();
         if src.is_file() {
-            file::move_or_copy(src, dest, mp, move_or_copy)?;
+            file::move_or_copy(src, dest, mp, None, move_or_copy)?;
         } else {
             dir::merge_or_copy(src, dest, mp, move_or_copy)?;
         }
@@ -154,10 +151,22 @@ fn finish_msg(move_or_copy: &MoveOrCopy, is_file: bool) -> &str {
     }
 }
 
-fn items_bar_style() -> indicatif::ProgressStyle {
-    indicatif::ProgressStyle::with_template("[{bar:40.cyan/blue}] {pos}/{len} {msg}")
-        .unwrap()
-        .progress_chars("=>-")
+fn bytes_bar_style() -> indicatif::ProgressStyle {
+    indicatif::ProgressStyle::with_template(
+        "[{bar:40.green/white}] {bytes}/{total_bytes} [{bytes_per_sec}] (ETA: {eta})",
+    )
+    .unwrap()
+    .progress_chars("=>-")
+}
+
+fn spinner_style(cnt: usize) -> indicatif::ProgressStyle {
+    if cnt > 1 {
+        indicatif::ProgressStyle::with_template("{spinner} {pos}/{len} {msg}")
+            .unwrap()
+            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+    } else {
+        indicatif::ProgressStyle::default_spinner().tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+    }
 }
 
 #[cfg(test)]

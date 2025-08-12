@@ -109,6 +109,36 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
+    fn get_total_size_of_files_empty() {
+        let files: Vec<std::path::PathBuf> = vec![];
+        assert_eq!(get_total_size_of_files(&files), 0);
+    }
+
+    #[test]
+    fn get_total_size_of_files_single() {
+        let temp_dir = tempdir().unwrap();
+        let file_contents = [("file1", "hello")];
+        let files: Vec<_> = file_contents
+            .iter()
+            .map(|(file, content)| create_temp_file(temp_dir.path(), file, content))
+            .collect();
+        let expected_size: u64 = file_contents.iter().map(|(_, c)| c.len() as u64).sum();
+        assert_eq!(get_total_size_of_files(&files), expected_size);
+    }
+
+    #[test]
+    fn get_total_size_of_files_multiple() {
+        let temp_dir = tempdir().unwrap();
+        let file_contents = [("file1", "abc"), ("file2", "defgh")];
+        let files: Vec<_> = file_contents
+            .iter()
+            .map(|(file, content)| create_temp_file(temp_dir.path(), file, content))
+            .collect();
+        let expected_size: u64 = file_contents.iter().map(|(_, c)| c.len() as u64).sum();
+        assert_eq!(get_total_size_of_files(&files), expected_size);
+    }
+
+    #[test]
     fn merge_directory_basic() {
         let src_dir = tempdir().unwrap();
         let src_rel_paths = [

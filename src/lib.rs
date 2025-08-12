@@ -81,13 +81,7 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
             "When copying multiple sources, the destination must be a directory.",
         );
     }
-    let pb_batch = mp.map(|mp| {
-        let pb = mp
-            .add(indicatif::ProgressBar::new(srcs.len() as u64))
-            .with_style(spinner_style(srcs.len()));
-        pb.enable_steady_tick(std::time::Duration::from_millis(100));
-        pb
-    });
+    let pb_batch = new_spinner(mp, srcs.len() as u64);
 
     for src in srcs {
         let src = src.as_ref();
@@ -159,14 +153,18 @@ fn bytes_bar_style() -> indicatif::ProgressStyle {
     .progress_chars("=>-")
 }
 
-fn spinner_style(cnt: usize) -> indicatif::ProgressStyle {
-    if cnt > 1 {
-        indicatif::ProgressStyle::with_template("{spinner} {pos}/{len} {msg}")
-            .unwrap()
-            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-    } else {
-        indicatif::ProgressStyle::default_spinner().tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-    }
+fn new_spinner(mp: Option<&indicatif::MultiProgress>, len: u64) -> Option<indicatif::ProgressBar> {
+    mp.map(|mp| {
+        let style = if len > 1 {
+            indicatif::ProgressStyle::with_template("{spinner} {pos}/{len} {msg}").unwrap()
+        } else {
+            indicatif::ProgressStyle::default_spinner()
+        }
+        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
+        let pb = mp.add(indicatif::ProgressBar::new(len)).with_style(style);
+        pb.enable_steady_tick(std::time::Duration::from_millis(100));
+        pb
+    })
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-use crate::{MoveOrCopy, bytes_bar_style, spinner_style};
+use crate::{MoveOrCopy, bytes_bar_style, new_spinner};
 use anyhow::ensure;
 use std::{
     fs,
@@ -42,14 +42,7 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
 
     let pb_total_bytes =
         mp.map(|mp| mp.add(indicatif::ProgressBar::new(total_size).with_style(bytes_bar_style())));
-
-    let pb_files = mp.map(|mp| {
-        let pb = mp
-            .add(indicatif::ProgressBar::new(files.len() as u64))
-            .with_style(spinner_style(files.len()));
-        pb.enable_steady_tick(std::time::Duration::from_millis(100));
-        pb
-    });
+    let pb_files = new_spinner(mp, files.len() as u64);
 
     for file in files {
         let rel_path = file.strip_prefix(src)?;

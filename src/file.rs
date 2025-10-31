@@ -70,7 +70,7 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
                 dest.display()
             );
         }
-        Err(e) if e.raw_os_error().map(|e| e == libc::ENOTSUP) == Some(true) => {
+        Err(e) if e.raw_os_error().is_some_and(|e| e == libc::ENOTSUP) => {
             log::debug!("Operation not supported, falling back to {fallback}. Full error: {e:?}");
         }
         Err(e) => bail!(e),

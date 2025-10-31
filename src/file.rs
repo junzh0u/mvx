@@ -11,7 +11,7 @@ pub(crate) fn move_or_copy<
     dest: Dest,
     mp: Option<&indicatif::MultiProgress>,
     move_or_copy: &MoveOrCopy,
-    extra_progress_hander: F,
+    progress_cb: Option<&F>,
 ) -> anyhow::Result<()> {
     let src = src.as_ref();
     let mut dest = dest.as_ref().to_path_buf();
@@ -87,7 +87,9 @@ pub(crate) fn move_or_copy<
         );
         let progress_handler = |transit: fs_extra::file::TransitProcess| {
             pb_bytes.set_position(transit.copied_bytes);
-            extra_progress_hander(transit);
+            if let Some(ref cb) = progress_cb {
+                cb(transit);
+            }
         };
         match move_or_copy {
             MoveOrCopy::Move => {
@@ -104,7 +106,7 @@ pub(crate) fn move_or_copy<
             MoveOrCopy::Copy => fs_extra::file::copy(src, &dest, &copy_options),
         }?;
     }
-    log::debug!("Moved: '{}' => '{}'", src.display(), dest.display());
+
     Ok(())
 }
 
@@ -120,11 +122,11 @@ mod tests {
     use tempfile::tempdir;
 
     fn move_file<Src: AsRef<Path>, Dest: AsRef<Path>>(src: Src, dest: Dest) -> anyhow::Result<()> {
-        move_or_copy(src, dest, None, &MoveOrCopy::Move, |_| {})
+        move_or_copy(src, dest, None, &MoveOrCopy::Move, None::<&fn(_)>)
     }
 
     fn copy_file<Src: AsRef<Path>, Dest: AsRef<Path>>(src: Src, dest: Dest) -> anyhow::Result<()> {
-        move_or_copy(src, dest, None, &MoveOrCopy::Copy, |_| {})
+        move_or_copy(src, dest, None, &MoveOrCopy::Copy, None::<&fn(_)>)
     }
 
     #[test]

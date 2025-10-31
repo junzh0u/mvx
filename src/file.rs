@@ -2,12 +2,16 @@ use crate::{MoveOrCopy, bytes_bar_style};
 use anyhow::{bail, ensure};
 use std::{fs, path::Path};
 
-pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
+pub(crate) fn move_or_copy<
+    Src: AsRef<Path>,
+    Dest: AsRef<Path>,
+    F: Fn(fs_extra::file::TransitProcess),
+>(
     src: Src,
     dest: Dest,
     mp: Option<&indicatif::MultiProgress>,
-    pb_total_bytes: Option<&indicatif::ProgressBar>,
     move_or_copy: &MoveOrCopy,
+    extra_progress_hander: F,
 ) -> anyhow::Result<()> {
     let src = src.as_ref();
     let mut dest = dest.as_ref().to_path_buf();
@@ -81,12 +85,9 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
         let pb_bytes = mp.add(
             indicatif::ProgressBar::new(fs::metadata(src)?.len()).with_style(bytes_bar_style()),
         );
-        let init_pos = pb_total_bytes.map_or(0, indicatif::ProgressBar::position);
         let progress_handler = |transit: fs_extra::file::TransitProcess| {
             pb_bytes.set_position(transit.copied_bytes);
-            if let Some(pb) = pb_total_bytes {
-                pb.set_position(init_pos + transit.copied_bytes);
-            }
+            extra_progress_hander(transit);
         };
         match move_or_copy {
             MoveOrCopy::Move => {
@@ -119,11 +120,11 @@ mod tests {
     use tempfile::tempdir;
 
     fn move_file<Src: AsRef<Path>, Dest: AsRef<Path>>(src: Src, dest: Dest) -> anyhow::Result<()> {
-        move_or_copy(src, dest, None, None, &MoveOrCopy::Move)
+        move_or_copy(src, dest, None, &MoveOrCopy::Move, |_| {})
     }
 
     fn copy_file<Src: AsRef<Path>, Dest: AsRef<Path>>(src: Src, dest: Dest) -> anyhow::Result<()> {
-        move_or_copy(src, dest, None, None, &MoveOrCopy::Copy)
+        move_or_copy(src, dest, None, &MoveOrCopy::Copy, |_| {})
     }
 
     #[test]

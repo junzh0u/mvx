@@ -104,7 +104,7 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
 
         let start = std::time::Instant::now();
         if src.is_file() {
-            file::move_or_copy(src, dest, mp, None, move_or_copy)?;
+            file::move_or_copy(src, dest, mp, move_or_copy, |_| {})?;
         } else {
             dir::merge_or_copy(src, dest, mp, move_or_copy)?;
         }

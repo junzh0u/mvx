@@ -51,7 +51,13 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
             pb.inc(1);
             pb.set_message(rel_path.display().to_string());
         }
-        crate::file::move_or_copy(&file, &dest_file, mp, pb_total_bytes.as_ref(), move_or_copy)?;
+        let progress_handler = |transit: fs_extra::file::TransitProcess| {
+            if let Some(pb) = pb_total_bytes.as_ref() {
+                let init_pos = pb.position();
+                pb.set_position(init_pos + transit.copied_bytes);
+            }
+        };
+        crate::file::move_or_copy(&file, &dest_file, mp, move_or_copy, progress_handler)?;
     }
 
     match move_or_copy {

@@ -21,7 +21,7 @@ fn main() {
     let mp = mvx::init_logging(cli.verbosity.log_level_filter());
     log::trace!("{cli:?}");
 
-    if let Err(e) = mvx::run_batch(&cli.srcs, &cli.dest, mp.as_ref(), &mvx::MoveOrCopy::Copy) {
+    if let Err(e) = mvx::run_batch(&cli.srcs, &cli.dest, &mvx::MoveOrCopy::Copy, mp.as_ref()) {
         eprintln!("{} {:?}", "✗".red().bold(), e);
         std::process::exit(1);
     }

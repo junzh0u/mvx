@@ -60,8 +60,8 @@ pub fn init_logging(level_filter: LevelFilter) -> Option<indicatif::MultiProgres
 pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
     srcs: Srcs,
     dest: Dest,
-    mp: Option<&indicatif::MultiProgress>,
     move_or_copy: &MoveOrCopy,
+    mp: Option<&indicatif::MultiProgress>,
 ) -> anyhow::Result<()> {
     let srcs = srcs.as_ref();
     let dest = dest.as_ref();
@@ -104,9 +104,9 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
 
         let start = std::time::Instant::now();
         if src.is_file() {
-            file::move_or_copy(src, dest, mp, move_or_copy, None::<&fn(_)>)?;
+            file::move_or_copy(src, dest, move_or_copy, mp, None::<&fn(_)>)?;
         } else {
-            dir::merge_or_copy(src, dest, mp, move_or_copy)?;
+            dir::merge_or_copy(src, dest, move_or_copy, mp)?;
         }
 
         if let Some(pb) = &pb_batch {
@@ -265,7 +265,7 @@ pub(crate) mod tests {
         let src_path = create_temp_file(work_dir.path(), "a", src_content);
         let dest_path = work_dir.path().join("b");
 
-        run_batch([&src_path], &dest_path, None, &MoveOrCopy::Move).unwrap();
+        run_batch([&src_path], &dest_path, &MoveOrCopy::Move, None).unwrap();
         assert_file_moved(&src_path, &dest_path, src_content);
     }
 
@@ -280,7 +280,7 @@ pub(crate) mod tests {
         let dest_dir = work_dir.path().join("dest");
         fs::create_dir_all(&dest_dir).unwrap();
 
-        run_batch(&src_paths, &dest_dir, None, &MoveOrCopy::Move).unwrap();
+        run_batch(&src_paths, &dest_dir, &MoveOrCopy::Move, None).unwrap();
         for src_path in src_paths {
             let dest_path = dest_dir.join(src_path.file_name().unwrap());
             assert_file_moved(&src_path, &dest_path, src_content);
@@ -299,7 +299,7 @@ pub(crate) mod tests {
         // fs::create_dir_all(&dest_dir).unwrap();
 
         assert_error_with_msg(
-            run_batch(&src_paths, &dest_dir, None, &MoveOrCopy::Move),
+            run_batch(&src_paths, &dest_dir, &MoveOrCopy::Move, None),
             "When copying multiple sources, the destination must be a directory.",
         );
         for src_path in src_paths {
@@ -315,7 +315,7 @@ pub(crate) mod tests {
         let src_path = create_temp_file(work_dir.path(), "a", src_content);
         let dest_path = work_dir.path().join("b");
 
-        run_batch([&src_path], &dest_path, None, &MoveOrCopy::Copy).unwrap();
+        run_batch([&src_path], &dest_path, &MoveOrCopy::Copy, None).unwrap();
         assert_file_copied(&src_path, &dest_path);
     }
 
@@ -327,7 +327,7 @@ pub(crate) mod tests {
         let src_path = create_temp_file(&work_dir, src_name, src_content);
         let dest_dir = work_dir.path().join("b/c/");
 
-        run_batch([&src_path], &dest_dir, None, &MoveOrCopy::Move).unwrap();
+        run_batch([&src_path], &dest_dir, &MoveOrCopy::Move, None).unwrap();
         assert_file_moved(src_path, dest_dir.join(src_name), src_content);
     }
 
@@ -339,7 +339,7 @@ pub(crate) mod tests {
         let src_path = create_temp_file(&work_dir, src_name, src_content);
         let dest_dir = work_dir.path().join("b/c/");
 
-        run_batch([&src_path], &dest_dir, None, &MoveOrCopy::Copy).unwrap();
+        run_batch([&src_path], &dest_dir, &MoveOrCopy::Copy, None).unwrap();
         assert_file_copied(src_path, dest_dir.join(src_name));
     }
 
@@ -358,7 +358,7 @@ pub(crate) mod tests {
         }
 
         let dest_dir = tempdir().unwrap();
-        run_batch([&src_dir], &dest_dir, None, &MoveOrCopy::Move).unwrap();
+        run_batch([&src_dir], &dest_dir, &MoveOrCopy::Move, None).unwrap();
         for path in src_rel_paths {
             let src_path = src_dir.path().join(path);
             let dest_path = dest_dir.path().join(path);
@@ -380,7 +380,7 @@ pub(crate) mod tests {
         });
 
         let dest_dir = tempdir().unwrap();
-        run_batch(&src_dirs, &dest_dir, None, &MoveOrCopy::Move).unwrap();
+        run_batch(&src_dirs, &dest_dir, &MoveOrCopy::Move, None).unwrap();
         (0..src_num).for_each(|i| {
             let src_path = src_dirs[i].path().join(&src_rel_paths[i]);
             let dest_path = dest_dir.path().join(&src_rel_paths[i]);
@@ -403,7 +403,7 @@ pub(crate) mod tests {
         }
 
         let dest_dir = tempdir().unwrap();
-        run_batch([&src_dir], &dest_dir, None, &MoveOrCopy::Copy).unwrap();
+        run_batch([&src_dir], &dest_dir, &MoveOrCopy::Copy, None).unwrap();
         for path in src_rel_paths {
             let src_path = src_dir.path().join(path);
             let dest_path = dest_dir.path().join(path);

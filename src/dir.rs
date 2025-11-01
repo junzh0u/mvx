@@ -8,8 +8,8 @@ use std::{
 pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
     src: Src,
     dest: Dest,
-    mp: Option<&indicatif::MultiProgress>,
     move_or_copy: &MoveOrCopy,
+    mp: Option<&indicatif::MultiProgress>,
 ) -> anyhow::Result<()> {
     let src = src.as_ref();
     let dest = dest.as_ref();
@@ -54,8 +54,8 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
         crate::file::move_or_copy(
             &file,
             &dest_file,
-            mp,
             move_or_copy,
+            mp,
             pb_total_bytes
                 .as_ref()
                 .map(|pb| {
@@ -178,7 +178,7 @@ mod tests {
             create_temp_file(dest_dir.path(), path, &format!("From dest: {path}"));
         }
 
-        merge_or_copy(&src_dir, &dest_dir, None, &MoveOrCopy::Move).unwrap();
+        merge_or_copy(&src_dir, &dest_dir, &MoveOrCopy::Move, None).unwrap();
         for path in src_rel_paths {
             let src_path = src_dir.path().join(path);
             let dest_path = dest_dir.path().join(path);
@@ -220,7 +220,7 @@ mod tests {
             create_temp_file(dest_dir.path(), path, &format!("From dest: {path}"));
         }
 
-        merge_or_copy(&src_dir, &dest_dir, None, &MoveOrCopy::Copy).unwrap();
+        merge_or_copy(&src_dir, &dest_dir, &MoveOrCopy::Copy, None).unwrap();
         for path in src_rel_paths {
             let src_path = src_dir.path().join(path);
             let dest_path = dest_dir.path().join(path);

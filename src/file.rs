@@ -9,8 +9,8 @@ pub(crate) fn move_or_copy<
 >(
     src: Src,
     dest: Dest,
-    mp: Option<&indicatif::MultiProgress>,
     move_or_copy: &MoveOrCopy,
+    mp: Option<&indicatif::MultiProgress>,
     progress_cb: Option<&F>,
 ) -> anyhow::Result<()> {
     let src = src.as_ref();
@@ -122,11 +122,11 @@ mod tests {
     use tempfile::tempdir;
 
     fn move_file<Src: AsRef<Path>, Dest: AsRef<Path>>(src: Src, dest: Dest) -> anyhow::Result<()> {
-        move_or_copy(src, dest, None, &MoveOrCopy::Move, None::<&fn(_)>)
+        move_or_copy(src, dest, &MoveOrCopy::Move, None, None::<&fn(_)>)
     }
 
     fn copy_file<Src: AsRef<Path>, Dest: AsRef<Path>>(src: Src, dest: Dest) -> anyhow::Result<()> {
-        move_or_copy(src, dest, None, &MoveOrCopy::Copy, None::<&fn(_)>)
+        move_or_copy(src, dest, &MoveOrCopy::Copy, None, None::<&fn(_)>)
     }
 
     #[test]

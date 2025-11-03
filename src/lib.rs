@@ -101,17 +101,23 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
     Ok(String::new())
 }
 
-fn bytes_bar_style(move_or_copy: &MoveOrCopy) -> indicatif::ProgressStyle {
-    indicatif::ProgressStyle::with_template(
+fn bytes_progress_bar<Src: AsRef<Path>, Dest: AsRef<Path>>(
+    size: u64,
+    src: Src,
+    dest: Dest,
+    move_or_copy: &MoveOrCopy,
+) -> indicatif::ProgressBar {
+    let style = indicatif::ProgressStyle::with_template(
         "{total_bytes:>11} [{bar:40.green/white}] {bytes:<11} ({bytes_per_sec:>13}, ETA: {eta_precise} ) {msg}",
-    )
-    .unwrap()
-    .progress_chars(
+    ).unwrap().progress_chars(
         match move_or_copy {
             MoveOrCopy::Move => "->-",
             MoveOrCopy::Copy => "=>=",
         }
-    )
+    );
+    indicatif::ProgressBar::new(size)
+        .with_style(style)
+        .with_message(message_with_arrow(src, dest, move_or_copy))
 }
 
 fn message_with_arrow<Src: AsRef<Path>, Dest: AsRef<Path>>(

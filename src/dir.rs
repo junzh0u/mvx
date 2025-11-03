@@ -1,4 +1,4 @@
-use crate::{MoveOrCopy, bytes_bar_style, message_with_arrow};
+use crate::{MoveOrCopy, bytes_progress_bar, message_with_arrow};
 use anyhow::ensure;
 use colored::Colorize;
 use std::{
@@ -43,13 +43,8 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
     files.sort_by_key(|p| p.to_string_lossy().to_string());
     let total_size = get_total_size_of_files(&files);
 
-    let pb_total_bytes = mp.map(|mp| {
-        mp.add(
-            indicatif::ProgressBar::new(total_size)
-                .with_style(bytes_bar_style(move_or_copy))
-                .with_message(message_with_arrow(src, dest, move_or_copy)),
-        )
-    });
+    let pb_total_bytes =
+        mp.map(|mp| mp.add(bytes_progress_bar(total_size, src, dest, move_or_copy)));
 
     for file in files {
         let rel_path = file.strip_prefix(src)?;

@@ -1,9 +1,8 @@
-use crate::{MoveOrCopy, bytes_bar_style, message_with_arrow};
+use crate::{MoveOrCopy, bytes_progress_bar, message_with_arrow};
 use anyhow::{bail, ensure};
 use colored::Colorize;
 use std::{fs, path::Path};
 
-#[allow(clippy::too_many_lines)]
 pub(crate) fn move_or_copy<
     Src: AsRef<Path>,
     Dest: AsRef<Path>,
@@ -17,7 +16,6 @@ pub(crate) fn move_or_copy<
 ) -> anyhow::Result<String> {
     let src = src.as_ref();
     let mut dest = dest.as_ref().to_path_buf();
-
     log::trace!(
         "move_or_copy('{}', '{}', {move_or_copy:?})",
         src.display(),
@@ -57,19 +55,18 @@ pub(crate) fn move_or_copy<
             reflink::reflink(src, &dest)
         }
     };
-
     let fallback = match move_or_copy {
         MoveOrCopy::Move => "copy and delete",
         MoveOrCopy::Copy => "copy",
     };
     match result {
         Ok(()) => {
-            let acted = match move_or_copy {
-                MoveOrCopy::Move => "Renamed",
-                MoveOrCopy::Copy => "Reflinked",
-            };
             return Ok(format!(
-                "{acted}: {}",
+                "{}: {}",
+                match move_or_copy {
+                    MoveOrCopy::Move => "Renamed",
+                    MoveOrCopy::Copy => "Reflinked",
+                },
                 message_with_arrow(src, dest, move_or_copy)
             ));
         }
@@ -89,11 +86,7 @@ pub(crate) fn move_or_copy<
     let file_size = fs::metadata(src)?.len();
     let copy_options = fs_extra::file::CopyOptions::new().overwrite(true);
     if let Some(mp) = mp {
-        let pb_bytes = mp.add(
-            indicatif::ProgressBar::new(fs::metadata(src)?.len())
-                .with_style(bytes_bar_style(move_or_copy))
-                .with_message(message_with_arrow(src, &dest, move_or_copy)),
-        );
+        let pb_bytes = mp.add(bytes_progress_bar(file_size, src, &dest, move_or_copy));
         let progress_handler = |transit: fs_extra::file::TransitProcess| {
             pb_bytes.set_position(transit.copied_bytes);
             if let Some(ref cb) = progress_cb {

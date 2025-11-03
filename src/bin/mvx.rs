@@ -19,9 +19,16 @@ pub struct Cli {
 fn main() {
     let cli = Cli::parse();
     let mp = mvx::init_logging(cli.verbosity.log_level_filter());
+    let ctrlc = mvx::ctrlc_channel().unwrap();
     log::trace!("{cli:?}");
 
-    if let Err(e) = mvx::run_batch(&cli.srcs, &cli.dest, &mvx::MoveOrCopy::Move, mp.as_ref()) {
+    if let Err(e) = mvx::run_batch(
+        &cli.srcs,
+        &cli.dest,
+        &mvx::MoveOrCopy::Move,
+        mp.as_ref(),
+        &ctrlc,
+    ) {
         eprintln!("{} {:?}", "✗".red().bold(), e);
         std::process::exit(1);
     }

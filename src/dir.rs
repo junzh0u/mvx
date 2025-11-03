@@ -4,6 +4,7 @@ use colored::Colorize;
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::mpsc::Receiver,
 };
 
 pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
@@ -11,6 +12,7 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
     dest: Dest,
     move_or_copy: &MoveOrCopy,
     mp: Option<&indicatif::MultiProgress>,
+    ctrlc: &Receiver<()>,
 ) -> anyhow::Result<String> {
     let src = src.as_ref();
     let dest = dest.as_ref();
@@ -46,10 +48,25 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
     let pb_total_bytes =
         mp.map(|mp| mp.add(bytes_progress_bar(total_size, src, dest, move_or_copy)));
 
+    let mut msgs: Vec<String> = Vec::new();
     for file in files {
         let rel_path = file.strip_prefix(src)?;
         let dest_file = dest.join(rel_path);
-        crate::file::move_or_copy(
+        if ctrlc.try_recv().is_ok() {
+            for msg in &msgs {
+                log::info!("{msg}");
+            }
+            log::error!(
+                "✗ Cancelled: {}",
+                message_with_arrow(file, dest_file, move_or_copy)
+            );
+            if let Some(pb) = pb_total_bytes {
+                pb.abandon_with_message(format!("✗ {}", pb.message()).red().bold().to_string());
+            }
+            std::process::exit(130);
+        }
+
+        let msg = crate::file::move_or_copy(
             file,
             &dest_file,
             move_or_copy,
@@ -64,6 +81,7 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
                 })
                 .as_ref(),
         )?;
+        msgs.push(msg);
     }
 
     match move_or_copy {
@@ -125,7 +143,7 @@ fn get_total_size_of_files<P: AsRef<Path>>(files: &[P]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::{assert_file_copied, assert_file_moved, create_temp_file};
+    use crate::tests::{assert_file_copied, assert_file_moved, create_temp_file, noop_receiver};
     use std::collections::HashSet;
     use tempfile::tempdir;
 
@@ -185,7 +203,14 @@ mod tests {
             create_temp_file(dest_dir.path(), path, &format!("From dest: {path}"));
         }
 
-        merge_or_copy(&src_dir, &dest_dir, &MoveOrCopy::Move, None).unwrap();
+        merge_or_copy(
+            &src_dir,
+            &dest_dir,
+            &MoveOrCopy::Move,
+            None,
+            &noop_receiver(),
+        )
+        .unwrap();
         for path in src_rel_paths {
             let src_path = src_dir.path().join(path);
             let dest_path = dest_dir.path().join(path);
@@ -227,7 +252,14 @@ mod tests {
             create_temp_file(dest_dir.path(), path, &format!("From dest: {path}"));
         }
 
-        merge_or_copy(&src_dir, &dest_dir, &MoveOrCopy::Copy, None).unwrap();
+        merge_or_copy(
+            &src_dir,
+            &dest_dir,
+            &MoveOrCopy::Copy,
+            None,
+            &noop_receiver(),
+        )
+        .unwrap();
         for path in src_rel_paths {
             let src_path = src_dir.path().join(path);
             let dest_path = dest_dir.path().join(path);

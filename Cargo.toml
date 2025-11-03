@@ -1,6 +1,6 @@
 [package]
 name = "mvx"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2024"
 description = "Enhanced file and directory move utility with progress bars and cross-device support"
 license = "MIT"

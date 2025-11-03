@@ -1,5 +1,6 @@
-use crate::{MoveOrCopy, bytes_bar_style, new_spinner};
+use crate::{MoveOrCopy, bytes_bar_style, message_with_arrow};
 use anyhow::ensure;
+use colored::Colorize;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -10,7 +11,7 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
     dest: Dest,
     move_or_copy: &MoveOrCopy,
     mp: Option<&indicatif::MultiProgress>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<String> {
     let src = src.as_ref();
     let dest = dest.as_ref();
     log::trace!(
@@ -36,23 +37,25 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
         fs::create_dir_all(dest)?;
     }
 
+    let timer = std::time::Instant::now();
+
     let mut files = collect_files_in_dir(src)?;
     files.sort_by_key(|p| p.to_string_lossy().to_string());
     let total_size = get_total_size_of_files(&files);
 
-    let pb_total_bytes =
-        mp.map(|mp| mp.add(indicatif::ProgressBar::new(total_size).with_style(bytes_bar_style())));
-    let pb_files = new_spinner(mp, files.len() as u64);
+    let pb_total_bytes = mp.map(|mp| {
+        mp.add(
+            indicatif::ProgressBar::new(total_size)
+                .with_style(bytes_bar_style(move_or_copy))
+                .with_message(message_with_arrow(src, dest, move_or_copy)),
+        )
+    });
 
     for file in files {
         let rel_path = file.strip_prefix(src)?;
         let dest_file = dest.join(rel_path);
-        if let Some(pb) = &pb_files {
-            pb.inc(1);
-            pb.set_message(rel_path.display().to_string());
-        }
         crate::file::move_or_copy(
-            &file,
+            file,
             &dest_file,
             move_or_copy,
             mp,
@@ -72,12 +75,21 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
         MoveOrCopy::Move => remove_empty_dir(src)?,
         MoveOrCopy::Copy => (),
     }
-
-    if let Some(pb) = &pb_files {
+    if let Some(pb) = pb_total_bytes {
         pb.finish_and_clear();
     }
 
-    Ok(())
+    Ok(format!(
+        "{} {} {} in {}: {}",
+        "↣".green().bold(),
+        match move_or_copy {
+            MoveOrCopy::Move => "Merged",
+            MoveOrCopy::Copy => "Copy-merged",
+        },
+        indicatif::HumanBytes(total_size),
+        indicatif::HumanDuration(timer.elapsed()),
+        message_with_arrow(src, dest, move_or_copy),
+    ))
 }
 
 fn remove_empty_dir<P: AsRef<Path>>(dir: P) -> std::io::Result<()> {

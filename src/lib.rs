@@ -62,7 +62,7 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
     dest: Dest,
     move_or_copy: &MoveOrCopy,
     mp: Option<&indicatif::MultiProgress>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<String> {
     let srcs = srcs.as_ref();
     let dest = dest.as_ref();
     log::trace!(
@@ -81,7 +81,6 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
             "When copying multiple sources, the destination must be a directory.",
         );
     }
-    let pb_batch = new_spinner(mp, srcs.len() as u64);
 
     for src in srcs {
         let src = src.as_ref();
@@ -90,81 +89,45 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
             "Source path '{}' is neither a file nor directory.",
             src.display()
         );
-        let is_file = src.is_file();
 
-        if let Some(pb) = &pb_batch {
-            pb.inc(1);
-            pb.set_message(format!(
-                "{}: '{}' => '{}'",
-                start_msg(move_or_copy, is_file),
-                src.display(),
-                dest.display(),
-            ));
-        }
-
-        let start = std::time::Instant::now();
-        if src.is_file() {
-            file::move_or_copy(src, dest, move_or_copy, mp, None::<&fn(_)>)?;
+        let msg = if src.is_file() {
+            file::move_or_copy(src, dest, move_or_copy, mp, None::<&fn(_)>)?
         } else {
-            dir::merge_or_copy(src, dest, move_or_copy, mp)?;
-        }
-
-        if let Some(pb) = &pb_batch {
-            pb.println(format!(
-                "{} {} in {}: '{}' => '{}'",
-                if is_file { "→" } else { "↣" }.green().bold(),
-                finish_msg(move_or_copy, is_file),
-                indicatif::HumanDuration(start.elapsed()),
-                src.display(),
-                dest.display(),
-            ));
-        }
-    }
-    if let Some(pb) = &pb_batch {
-        pb.finish_and_clear();
+            dir::merge_or_copy(src, dest, move_or_copy, mp)?
+        };
+        println!("{msg}");
     }
 
-    Ok(())
+    Ok(String::new())
 }
 
-fn start_msg(move_or_copy: &MoveOrCopy, is_file: bool) -> &str {
-    match (move_or_copy, is_file) {
-        (MoveOrCopy::Move, true) => "Moving",
-        (MoveOrCopy::Move, false) => "Merging",
-        (MoveOrCopy::Copy, true) => "Copying",
-        (MoveOrCopy::Copy, false) => "Copy-merging",
-    }
-}
-
-fn finish_msg(move_or_copy: &MoveOrCopy, is_file: bool) -> &str {
-    match (move_or_copy, is_file) {
-        (MoveOrCopy::Move, true) => "Moved",
-        (MoveOrCopy::Move, false) => "Merged",
-        (MoveOrCopy::Copy, true) => "Copied",
-        (MoveOrCopy::Copy, false) => "Copy-merged",
-    }
-}
-
-fn bytes_bar_style() -> indicatif::ProgressStyle {
+fn bytes_bar_style(move_or_copy: &MoveOrCopy) -> indicatif::ProgressStyle {
     indicatif::ProgressStyle::with_template(
-        "[{bar:40.green/white}] {bytes}/{total_bytes} [{bytes_per_sec}] (ETA: {eta})",
+        "{total_bytes:>11} [{bar:40.green/white}] {bytes:<11} ({bytes_per_sec:>13}, ETA: {eta_precise} ) {msg}",
     )
     .unwrap()
-    .progress_chars("=>-")
+    .progress_chars(
+        match move_or_copy {
+            MoveOrCopy::Move => "->-",
+            MoveOrCopy::Copy => "=>=",
+        }
+    )
 }
 
-fn new_spinner(mp: Option<&indicatif::MultiProgress>, len: u64) -> Option<indicatif::ProgressBar> {
-    mp.map(|mp| {
-        let style = if len > 1 {
-            indicatif::ProgressStyle::with_template("{spinner} {pos}/{len} {msg}").unwrap()
-        } else {
-            indicatif::ProgressStyle::default_spinner()
-        }
-        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
-        let pb = mp.add(indicatif::ProgressBar::new(len)).with_style(style);
-        pb.enable_steady_tick(std::time::Duration::from_millis(100));
-        pb
-    })
+fn message_with_arrow<Src: AsRef<Path>, Dest: AsRef<Path>>(
+    src: Src,
+    dest: Dest,
+    move_or_copy: &MoveOrCopy,
+) -> String {
+    format!(
+        "{} {} {}",
+        src.as_ref().display(),
+        match move_or_copy {
+            MoveOrCopy::Move => "->",
+            MoveOrCopy::Copy => "=>",
+        },
+        dest.as_ref().display()
+    )
 }
 
 #[cfg(test)]
@@ -248,7 +211,7 @@ pub(crate) mod tests {
         );
     }
 
-    pub(crate) fn assert_error_with_msg(result: anyhow::Result<()>, msg: &str) {
+    pub(crate) fn assert_error_with_msg(result: anyhow::Result<String>, msg: &str) {
         assert!(result.is_err(), "Expected an error, but got success");
         let err_msg = result.unwrap_err().to_string();
         assert!(

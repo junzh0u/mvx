@@ -1,7 +1,9 @@
-use crate::{MoveOrCopy, bytes_bar_style};
+use crate::{MoveOrCopy, bytes_bar_style, message_with_arrow};
 use anyhow::{bail, ensure};
+use colored::Colorize;
 use std::{fs, path::Path};
 
+#[allow(clippy::too_many_lines)]
 pub(crate) fn move_or_copy<
     Src: AsRef<Path>,
     Dest: AsRef<Path>,
@@ -12,7 +14,7 @@ pub(crate) fn move_or_copy<
     move_or_copy: &MoveOrCopy,
     mp: Option<&indicatif::MultiProgress>,
     progress_cb: Option<&F>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<String> {
     let src = src.as_ref();
     let mut dest = dest.as_ref().to_path_buf();
 
@@ -40,6 +42,8 @@ pub(crate) fn move_or_copy<
         "Destination '{}' already exists and is not a file",
         dest.display()
     );
+
+    let timer = std::time::Instant::now();
     if let Some(dest_parent) = dest.parent() {
         fs::create_dir_all(dest_parent)?;
     }
@@ -64,8 +68,10 @@ pub(crate) fn move_or_copy<
                 MoveOrCopy::Move => "Renamed",
                 MoveOrCopy::Copy => "Reflinked",
             };
-            log::debug!("{acted}: '{}' => '{}'", src.display(), dest.display());
-            return Ok(());
+            return Ok(format!(
+                "{acted}: {}",
+                message_with_arrow(src, dest, move_or_copy)
+            ));
         }
         Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
             log::debug!(
@@ -80,10 +86,13 @@ pub(crate) fn move_or_copy<
         Err(e) => bail!(e),
     }
 
+    let file_size = fs::metadata(src)?.len();
     let copy_options = fs_extra::file::CopyOptions::new().overwrite(true);
     if let Some(mp) = mp {
         let pb_bytes = mp.add(
-            indicatif::ProgressBar::new(fs::metadata(src)?.len()).with_style(bytes_bar_style()),
+            indicatif::ProgressBar::new(fs::metadata(src)?.len())
+                .with_style(bytes_bar_style(move_or_copy))
+                .with_message(message_with_arrow(src, &dest, move_or_copy)),
         );
         let progress_handler = |transit: fs_extra::file::TransitProcess| {
             pb_bytes.set_position(transit.copied_bytes);
@@ -107,7 +116,17 @@ pub(crate) fn move_or_copy<
         }?;
     }
 
-    Ok(())
+    Ok(format!(
+        "{} {} {} in {}: {}",
+        "→".green().bold(),
+        match move_or_copy {
+            MoveOrCopy::Move => "Moved",
+            MoveOrCopy::Copy => "Copied",
+        },
+        indicatif::HumanBytes(file_size),
+        indicatif::HumanDuration(timer.elapsed()),
+        message_with_arrow(src, dest, move_or_copy)
+    ))
 }
 
 #[cfg(test)]
@@ -121,11 +140,17 @@ mod tests {
     use std::fs;
     use tempfile::tempdir;
 
-    fn move_file<Src: AsRef<Path>, Dest: AsRef<Path>>(src: Src, dest: Dest) -> anyhow::Result<()> {
+    fn move_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
+        src: Src,
+        dest: Dest,
+    ) -> anyhow::Result<String> {
         move_or_copy(src, dest, &MoveOrCopy::Move, None, None::<&fn(_)>)
     }
 
-    fn copy_file<Src: AsRef<Path>, Dest: AsRef<Path>>(src: Src, dest: Dest) -> anyhow::Result<()> {
+    fn copy_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
+        src: Src,
+        dest: Dest,
+    ) -> anyhow::Result<String> {
         move_or_copy(src, dest, &MoveOrCopy::Copy, None, None::<&fn(_)>)
     }
 

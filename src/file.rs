@@ -1,7 +1,10 @@
 use crate::{MoveOrCopy, bytes_progress_bar, message_with_arrow};
 use anyhow::{bail, ensure};
 use colored::Colorize;
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 pub(crate) fn move_or_copy<
     Src: AsRef<Path>,
@@ -15,31 +18,12 @@ pub(crate) fn move_or_copy<
     progress_cb: Option<&F>,
 ) -> anyhow::Result<String> {
     let src = src.as_ref();
-    let mut dest = dest.as_ref().to_path_buf();
     log::trace!(
         "move_or_copy('{}', '{}', {move_or_copy:?})",
         src.display(),
-        dest.display()
+        dest.as_ref().display()
     );
-
-    ensure!(src.exists(), "Source '{}' does not exist", src.display());
-    ensure!(
-        src.is_file(),
-        "Source '{}' exists but is not a file",
-        src.display()
-    );
-
-    if dest.is_dir() || (!dest.exists() && dest.to_string_lossy().ends_with('/')) {
-        match src.file_name() {
-            Some(name) => dest.push(name),
-            None => bail!("Cannot get file name from '{}'", src.display()),
-        }
-    }
-    ensure!(
-        !dest.exists() || dest.is_file(),
-        "Destination '{}' already exists and is not a file",
-        dest.display()
-    );
+    let dest = ensure_dest(src, &dest)?;
 
     let timer = std::time::Instant::now();
     if let Some(dest_parent) = dest.parent() {
@@ -121,6 +105,33 @@ pub(crate) fn move_or_copy<
         indicatif::HumanDuration(timer.elapsed()),
         message_with_arrow(src, dest, move_or_copy)
     ))
+}
+
+fn ensure_dest<Src: AsRef<Path>, Dest: AsRef<Path>>(
+    src: Src,
+    dest: Dest,
+) -> anyhow::Result<PathBuf> {
+    let src = src.as_ref();
+    let mut dest = dest.as_ref().to_path_buf();
+    ensure!(src.exists(), "Source '{}' does not exist", src.display());
+    ensure!(
+        src.is_file(),
+        "Source '{}' exists but is not a file",
+        src.display()
+    );
+
+    if dest.is_dir() || (!dest.exists() && dest.to_string_lossy().ends_with('/')) {
+        match src.file_name() {
+            Some(name) => dest.push(name),
+            None => bail!("Cannot get file name from '{}'", src.display()),
+        }
+    }
+    ensure!(
+        !dest.exists() || dest.is_file(),
+        "Destination '{}' already exists and is not a file",
+        dest.display()
+    );
+    Ok(dest)
 }
 
 #[cfg(test)]

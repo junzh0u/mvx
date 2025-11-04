@@ -62,7 +62,8 @@ pub(crate) fn move_or_copy<
     match result {
         Ok(()) => {
             return Ok(format!(
-                "{}: {}",
+                "{} {}: {}",
+                "→".green().bold(),
                 match move_or_copy {
                     MoveOrCopy::Move => "Renamed",
                     MoveOrCopy::Copy => "Reflinked",

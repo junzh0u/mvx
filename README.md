@@ -7,7 +7,7 @@ For basic file operations, `mvx`/`cpx` behaves the same as the standard `mv`/`cp
 ## Key Features / Differences from `mv`/`cp`
 
 ### Directory Handling
-When moving/copying a directory to an existing directory, `mvx`/`cpx` merges the contents rather than replacing or nesting the directory. Files with the same name are overwritten, but unique files in the destination are preserved.
+When moving/copying a directory to an existing directory, `mvx`/`cpx` merges the contents rather than replacing or nesting the directory. Unique files in the destination are preserved. By default, existing files are not overwritten; use `-f` to allow overwriting.
 
 ### Path Creation
 `mvx`/`cpx` automatically creates any necessary destination directories.
@@ -26,6 +26,7 @@ mvx [OPTIONS] <SOURCE> <DESTINATION>
 
 ### Options
 
+- `-f, --force`: Overwrite existing files
 - `-q, --quiet`: Suppress progress bars and messages
 - `-h, --help`: Print help information
 - `-V, --version`: Print version information
@@ -38,6 +39,9 @@ mvx large_file.iso /media/backup/
 
 # Move and merge a directory
 mvx source_dir/ destination_dir/
+
+# Move and overwrite existing files
+mvx -f source_dir/ destination_dir/
 
 # Move in quiet mode
 mvx -q large_file.iso /media/backup/

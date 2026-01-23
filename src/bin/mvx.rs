@@ -8,6 +8,10 @@ pub struct Cli {
     #[command(flatten)]
     verbosity: clap_verbosity_flag::Verbosity<clap_verbosity_flag::InfoLevel>,
 
+    /// Overwrite existing files
+    #[arg(short = 'f', long)]
+    force: bool,
+
     /// Paths to move from
     #[arg(required = true)]
     srcs: Vec<PathBuf>,
@@ -26,6 +30,7 @@ fn main() {
         &cli.srcs,
         &cli.dest,
         &mvx::MoveOrCopy::Move,
+        cli.force,
         mp.as_ref(),
         &ctrlc,
     ) {

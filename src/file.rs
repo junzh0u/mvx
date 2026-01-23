@@ -14,16 +14,17 @@ pub(crate) fn move_or_copy<
     src: Src,
     dest: Dest,
     move_or_copy: &MoveOrCopy,
+    force: bool,
     mp: Option<&indicatif::MultiProgress>,
     progress_cb: Option<&F>,
 ) -> anyhow::Result<String> {
     let src = src.as_ref();
     log::trace!(
-        "move_or_copy('{}', '{}', {move_or_copy:?})",
+        "move_or_copy('{}', '{}', {move_or_copy:?}, force={force})",
         src.display(),
         dest.as_ref().display()
     );
-    let dest = ensure_dest(src, &dest)?;
+    let dest = ensure_dest(src, &dest, force)?;
 
     let timer = std::time::Instant::now();
     if let Some(dest_parent) = dest.parent() {
@@ -110,6 +111,7 @@ pub(crate) fn move_or_copy<
 fn ensure_dest<Src: AsRef<Path>, Dest: AsRef<Path>>(
     src: Src,
     dest: Dest,
+    force: bool,
 ) -> anyhow::Result<PathBuf> {
     let src = src.as_ref();
     let mut dest = dest.as_ref().to_path_buf();
@@ -126,11 +128,18 @@ fn ensure_dest<Src: AsRef<Path>, Dest: AsRef<Path>>(
             None => bail!("Cannot get file name from '{}'", src.display()),
         }
     }
-    ensure!(
-        !dest.exists() || dest.is_file(),
-        "Destination '{}' already exists and is not a file",
-        dest.display()
-    );
+    if dest.exists() {
+        ensure!(
+            dest.is_file(),
+            "Destination '{}' already exists and is not a file",
+            dest.display()
+        );
+        ensure!(
+            force,
+            "Destination '{}' already exists (use -f to overwrite)",
+            dest.display()
+        );
+    }
     Ok(dest)
 }
 
@@ -148,15 +157,17 @@ mod tests {
     fn move_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
         src: Src,
         dest: Dest,
+        force: bool,
     ) -> anyhow::Result<String> {
-        move_or_copy(src, dest, &MoveOrCopy::Move, None, None::<&fn(_)>)
+        move_or_copy(src, dest, &MoveOrCopy::Move, force, None, None::<&fn(_)>)
     }
 
     fn copy_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
         src: Src,
         dest: Dest,
+        force: bool,
     ) -> anyhow::Result<String> {
-        move_or_copy(src, dest, &MoveOrCopy::Copy, None, None::<&fn(_)>)
+        move_or_copy(src, dest, &MoveOrCopy::Copy, force, None, None::<&fn(_)>)
     }
 
     #[test]
@@ -166,7 +177,7 @@ mod tests {
         let src_path = create_temp_file(work_dir.path(), "a", src_content);
         let dest_path = work_dir.path().join("b");
 
-        move_file(&src_path, &dest_path).unwrap();
+        move_file(&src_path, &dest_path, false).unwrap();
         assert_file_moved(&src_path, &dest_path, src_content);
     }
 
@@ -176,7 +187,7 @@ mod tests {
         let src_path = create_temp_file(work_dir.path(), "a", "This is a test file");
         let dest_path = work_dir.path().join("b");
 
-        copy_file(&src_path, &dest_path).unwrap();
+        copy_file(&src_path, &dest_path, false).unwrap();
         assert_file_copied(&src_path, &dest_path);
     }
 
@@ -188,7 +199,7 @@ mod tests {
         let src_content = "This is a test file";
         fs::write("a", src_content).unwrap();
 
-        move_file("a", "b").unwrap();
+        move_file("a", "b", false).unwrap();
         assert_file_moved("a", "b", src_content);
     }
 
@@ -200,30 +211,56 @@ mod tests {
         let src_content = "This is a test file";
         fs::write("a", src_content).unwrap();
 
-        copy_file("a", "b").unwrap();
+        copy_file("a", "b", false).unwrap();
         assert_file_copied("a", "b");
     }
 
     #[test]
-    fn move_file_overwrites() {
+    fn move_file_overwrites_with_force() {
         let work_dir = tempdir().unwrap();
         let src_content = "This is a test file";
         let src_path = create_temp_file(work_dir.path(), "a", src_content);
         let dest_path = create_temp_file(work_dir.path(), "b", "This is a different file");
 
-        move_file(&src_path, &dest_path).unwrap();
+        move_file(&src_path, &dest_path, true).unwrap();
         assert_file_moved(&src_path, &dest_path, src_content);
     }
 
     #[test]
-    fn copy_file_overwrites() {
+    fn copy_file_overwrites_with_force() {
         let work_dir = tempdir().unwrap();
         let src_content = "This is a test file";
         let src_path = create_temp_file(work_dir.path(), "a", src_content);
         let dest_path = create_temp_file(work_dir.path(), "b", "This is a different file");
 
-        copy_file(&src_path, &dest_path).unwrap();
+        copy_file(&src_path, &dest_path, true).unwrap();
         assert_file_copied(&src_path, &dest_path);
+    }
+
+    #[test]
+    fn move_file_fails_without_force_when_dest_exists() {
+        let work_dir = tempdir().unwrap();
+        let src_content = "This is a test file";
+        let src_path = create_temp_file(work_dir.path(), "a", src_content);
+        let dest_path = create_temp_file(work_dir.path(), "b", "This is a different file");
+
+        assert_error_with_msg(
+            move_file(&src_path, &dest_path, false),
+            "already exists (use -f to overwrite)",
+        );
+    }
+
+    #[test]
+    fn copy_file_fails_without_force_when_dest_exists() {
+        let work_dir = tempdir().unwrap();
+        let src_content = "This is a test file";
+        let src_path = create_temp_file(work_dir.path(), "a", src_content);
+        let dest_path = create_temp_file(work_dir.path(), "b", "This is a different file");
+
+        assert_error_with_msg(
+            copy_file(&src_path, &dest_path, false),
+            "already exists (use -f to overwrite)",
+        );
     }
 
     #[test]
@@ -235,7 +272,7 @@ mod tests {
 
         assert!(!src_path.exists(), "Source file should not exist initially");
         assert_error_with_msg(
-            move_file(&src_path, "/dest/does/not/matter"),
+            move_file(&src_path, "/dest/does/not/matter", false),
             "does not exist",
         );
         assert_eq!(
@@ -254,7 +291,7 @@ mod tests {
 
         assert!(!src_path.exists(), "Source file should not exist initially");
         assert_error_with_msg(
-            copy_file(&src_path, "/dest/does/not/matter"),
+            copy_file(&src_path, "/dest/does/not/matter", false),
             "does not exist",
         );
         assert_eq!(
@@ -273,7 +310,7 @@ mod tests {
             .path()
             .join("b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z");
 
-        move_file(&src_path, &dest_path).unwrap();
+        move_file(&src_path, &dest_path, false).unwrap();
         assert_file_moved(&src_path, &dest_path, src_content);
     }
 
@@ -286,7 +323,7 @@ mod tests {
             .path()
             .join("b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z");
 
-        copy_file(&src_path, &dest_path).unwrap();
+        copy_file(&src_path, &dest_path, false).unwrap();
         assert_file_copied(&src_path, &dest_path);
     }
 
@@ -300,7 +337,7 @@ mod tests {
             .path()
             .join("b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z");
 
-        assert_error_with_msg(move_file(&src_path, &dest_path), "Not a directory");
+        assert_error_with_msg(move_file(&src_path, &dest_path, false), "Not a directory");
         assert_file_not_moved(&src_path, &dest_path);
     }
 
@@ -314,7 +351,7 @@ mod tests {
             .path()
             .join("b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z");
 
-        assert_error_with_msg(copy_file(&src_path, &dest_path), "Not a directory");
+        assert_error_with_msg(copy_file(&src_path, &dest_path, false), "Not a directory");
         assert_file_not_moved(&src_path, &dest_path);
     }
 }

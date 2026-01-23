@@ -11,6 +11,7 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
     src: Src,
     dest: Dest,
     move_or_copy: &MoveOrCopy,
+    force: bool,
     mp: Option<&indicatif::MultiProgress>,
     ctrlc: &Receiver<()>,
 ) -> anyhow::Result<String> {
@@ -70,6 +71,7 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
             file,
             &dest_file,
             move_or_copy,
+            force,
             mp,
             pb_total_bytes
                 .as_ref()
@@ -207,6 +209,7 @@ mod tests {
             &src_dir,
             &dest_dir,
             &MoveOrCopy::Move,
+            true,
             None,
             &noop_receiver(),
         )
@@ -256,6 +259,7 @@ mod tests {
             &src_dir,
             &dest_dir,
             &MoveOrCopy::Copy,
+            true,
             None,
             &noop_receiver(),
         )

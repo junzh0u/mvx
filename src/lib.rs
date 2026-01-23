@@ -62,6 +62,7 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
     srcs: Srcs,
     dest: Dest,
     move_or_copy: &MoveOrCopy,
+    force: bool,
     mp: Option<&indicatif::MultiProgress>,
     ctrlc: &Receiver<()>,
 ) -> anyhow::Result<String> {
@@ -101,9 +102,9 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
         );
 
         let msg = if src.is_file() {
-            file::move_or_copy(src, dest, move_or_copy, mp, None::<&fn(_)>)?
+            file::move_or_copy(src, dest, move_or_copy, force, mp, None::<&fn(_)>)?
         } else {
-            dir::merge_or_copy(src, dest, move_or_copy, mp, ctrlc)?
+            dir::merge_or_copy(src, dest, move_or_copy, force, mp, ctrlc)?
         };
         println!("{msg}");
     }
@@ -267,6 +268,7 @@ pub(crate) mod tests {
             [&src_path],
             &dest_path,
             &MoveOrCopy::Move,
+            false,
             None,
             &noop_receiver(),
         )
@@ -289,6 +291,7 @@ pub(crate) mod tests {
             &src_paths,
             &dest_dir,
             &MoveOrCopy::Move,
+            false,
             None,
             &noop_receiver(),
         )
@@ -315,6 +318,7 @@ pub(crate) mod tests {
                 &src_paths,
                 &dest_dir,
                 &MoveOrCopy::Move,
+                false,
                 None,
                 &noop_receiver(),
             ),
@@ -337,6 +341,7 @@ pub(crate) mod tests {
             [&src_path],
             &dest_path,
             &MoveOrCopy::Copy,
+            false,
             None,
             &noop_receiver(),
         )
@@ -356,6 +361,7 @@ pub(crate) mod tests {
             [&src_path],
             &dest_dir,
             &MoveOrCopy::Move,
+            false,
             None,
             &noop_receiver(),
         )
@@ -375,6 +381,7 @@ pub(crate) mod tests {
             [&src_path],
             &dest_dir,
             &MoveOrCopy::Copy,
+            false,
             None,
             &noop_receiver(),
         )
@@ -401,6 +408,7 @@ pub(crate) mod tests {
             [&src_dir],
             &dest_dir,
             &MoveOrCopy::Move,
+            false,
             None,
             &noop_receiver(),
         )
@@ -430,6 +438,7 @@ pub(crate) mod tests {
             &src_dirs,
             &dest_dir,
             &MoveOrCopy::Move,
+            false,
             None,
             &noop_receiver(),
         )
@@ -460,6 +469,7 @@ pub(crate) mod tests {
             [&src_dir],
             &dest_dir,
             &MoveOrCopy::Copy,
+            false,
             None,
             &noop_receiver(),
         )

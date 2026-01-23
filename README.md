@@ -1,50 +1,107 @@
-# mvx/cpx - Enhanced File and Directory Move Utility
+# mvx / cpx
 
-`mvx`/`cpx` is a command-line utility that extends the standard `mv`/`cp` command with progress bars and enhanced features.
+Enhanced `mv` and `cp` commands with directory merging and progress bars.
 
-For basic file operations, `mvx`/`cpx` behaves the same as the standard `mv`/`cp` command.
+## Installation
 
-## Key Features / Differences from `mv`/`cp`
+```bash
+cargo install --path .
+```
 
-### Directory Handling
-When moving/copying a directory to an existing directory, `mvx`/`cpx` merges the contents rather than replacing or nesting the directory. Unique files in the destination are preserved. By default, existing files are not overwritten; use `-f` to allow overwriting.
-
-### Path Creation
-`mvx`/`cpx` automatically creates any necessary destination directories.
-
-### Progress Visualization
-For cross-device file operations, `mvx`/`cpx` displays progress bars, which can be suppressed via `-q` flag.
+This installs both `mvx` (move) and `cpx` (copy) binaries.
 
 ## Usage
 
-> [!NOTE]
-> only `mvx` is demonstrated in this section, `cpx` works exactly the same.
-
 ```
-mvx [OPTIONS] <SOURCE> <DESTINATION>
+mvx [OPTIONS] <SOURCES>... <DEST>
+cpx [OPTIONS] <SOURCES>... <DEST>
 ```
 
 ### Options
 
-- `-f, --force`: Overwrite existing files
-- `-q, --quiet`: Suppress progress bars and messages
-- `-h, --help`: Print help information
-- `-V, --version`: Print version information
+| Option | Description |
+|--------|-------------|
+| `-f, --force` | Overwrite existing files |
+| `-q, --quiet` | Suppress progress bars and info messages |
+| `-v, --verbose` | Show detailed output |
+| `-h, --help` | Print help |
+| `-V, --version` | Print version |
 
-### Examples
+## Features
+
+### Directory Merging
+
+Unlike standard `mv`/`cp`, when the destination is an existing directory, `mvx`/`cpx` merges contents instead of nesting:
 
 ```bash
-# Move a file with progress bar
-mvx large_file.iso /media/backup/
+# Standard mv: creates dest/source_dir/
+mv source_dir/ dest/
 
-# Move and merge a directory
-mvx source_dir/ destination_dir/
-
-# Move and overwrite existing files
-mvx -f source_dir/ destination_dir/
-
-# Move in quiet mode
-mvx -q large_file.iso /media/backup/
+# mvx: merges source_dir/* into dest/*
+mvx source_dir/ dest/
 ```
+
+Files unique to the destination are preserved. Overlapping files require `-f` to overwrite.
+
+### Safe by Default
+
+Existing files are never overwritten unless `-f` is specified:
+
+```bash
+# Fails if dest/file.txt exists
+mvx file.txt dest/
+
+# Overwrites dest/file.txt if it exists
+mvx -f file.txt dest/
+```
+
+### Automatic Directory Creation
+
+Destination directories are created automatically:
+
+```bash
+# Creates /path/to/new/dest/ if it doesn't exist
+mvx file.txt /path/to/new/dest/
+```
+
+### Progress Bars
+
+Cross-device operations display progress bars with transfer speed and ETA:
+
+```
+   1.2 GiB [========>-------------------------------]  312 MiB (  45.2 MiB/s, ETA: 00:00:21 ) file.iso -> /mnt/backup/file.iso
+```
+
+Use `-q` to suppress progress output.
+
+## Examples
+
+```bash
+# Move a single file
+mvx file.txt /backup/
+
+# Copy multiple files to a directory
+cpx file1.txt file2.txt /dest/
+
+# Merge directories (preserve existing, fail on conflicts)
+mvx source_dir/ dest_dir/
+
+# Merge directories (overwrite conflicts)
+mvx -f source_dir/ dest_dir/
+
+# Copy with progress bar suppressed
+cpx -q large_file.iso /mnt/usb/
+```
+
+## Differences from mv/cp
+
+| Behavior | mv/cp | mvx/cpx |
+|----------|-------|---------|
+| Directory to existing directory | Nests source inside dest | Merges contents |
+| Destination doesn't exist | Fails (for directories) | Creates automatically |
+| File exists at destination | Overwrites silently | Fails (use `-f` to overwrite) |
+| Cross-device operations | No progress indication | Shows progress bar |
+
+## License
 
 [MIT License](LICENSE)

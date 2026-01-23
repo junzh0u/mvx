@@ -180,7 +180,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_directory_basic() {
+    fn merge_directory_overwrites_existing_files_with_force() {
         let src_dir = tempdir().unwrap();
         let src_rel_paths = [
             "file1",
@@ -230,7 +230,7 @@ mod tests {
     }
 
     #[test]
-    fn copy_directory_basic() {
+    fn copy_directory_overwrites_existing_files_with_force() {
         let src_dir = tempdir().unwrap();
         let src_rel_paths = [
             "file1",
@@ -277,6 +277,68 @@ mod tests {
                 dest_path.display()
             );
         }
+    }
+
+    #[test]
+    fn merge_directory_succeeds_without_force_when_no_files_overlap() {
+        let src_dir = tempdir().unwrap();
+        let src_rel_paths = ["file1", "subdir/subfile1"];
+        for path in src_rel_paths {
+            create_temp_file(src_dir.path(), path, &format!("From source: {path}"));
+        }
+
+        let dest_dir = tempdir().unwrap();
+        let dest_rel_paths = ["file2", "subdir/subfile2"];
+        for path in dest_rel_paths {
+            create_temp_file(dest_dir.path(), path, &format!("From dest: {path}"));
+        }
+
+        // force=false should work because no files overlap
+        merge_or_copy(
+            &src_dir,
+            &dest_dir,
+            &MoveOrCopy::Move,
+            false,
+            None,
+            &noop_receiver(),
+        )
+        .unwrap();
+
+        for path in src_rel_paths {
+            let src_path = src_dir.path().join(path);
+            let dest_path = dest_dir.path().join(path);
+            assert_file_moved(&src_path, &dest_path, &format!("From source: {path}"));
+        }
+        for path in dest_rel_paths {
+            let dest_path = dest_dir.path().join(path);
+            assert!(
+                dest_path.exists(),
+                "File '{}' should exist",
+                dest_path.display()
+            );
+        }
+    }
+
+    #[test]
+    fn merge_directory_fails_without_force_when_files_overlap() {
+        let src_dir = tempdir().unwrap();
+        create_temp_file(src_dir.path(), "file1", "From source");
+
+        let dest_dir = tempdir().unwrap();
+        create_temp_file(dest_dir.path(), "file1", "From dest");
+
+        // force=false should fail because file1 exists in both
+        let result = merge_or_copy(
+            &src_dir,
+            &dest_dir,
+            &MoveOrCopy::Move,
+            false,
+            None,
+            &noop_receiver(),
+        );
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("already exists"));
     }
 
     #[test]

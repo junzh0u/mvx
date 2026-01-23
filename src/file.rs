@@ -70,7 +70,7 @@ pub(crate) fn move_or_copy<
     }
 
     let file_size = fs::metadata(src)?.len();
-    let copy_options = fs_extra::file::CopyOptions::new().overwrite(true);
+    let copy_options = fs_extra::file::CopyOptions::new().overwrite(force);
     if let Some(mp) = mp {
         let pb_bytes = mp.add(bytes_progress_bar(file_size, src, &dest, move_or_copy));
         let progress_handler = |transit: fs_extra::file::TransitProcess| {
@@ -171,7 +171,7 @@ mod tests {
     }
 
     #[test]
-    fn move_file_with_absolute_path() {
+    fn move_file_succeeds_with_absolute_path() {
         let work_dir = tempdir().unwrap();
         let src_content = "This is a test file";
         let src_path = create_temp_file(work_dir.path(), "a", src_content);
@@ -182,7 +182,7 @@ mod tests {
     }
 
     #[test]
-    fn copy_file_with_absolute_path() {
+    fn copy_file_succeeds_with_absolute_path() {
         let work_dir = tempdir().unwrap();
         let src_path = create_temp_file(work_dir.path(), "a", "This is a test file");
         let dest_path = work_dir.path().join("b");
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     #[serial]
-    fn move_file_with_relative_paths() {
+    fn move_file_succeeds_with_relative_path() {
         let work_dir = tempdir().unwrap();
         std::env::set_current_dir(&work_dir).unwrap();
         let src_content = "This is a test file";
@@ -205,7 +205,7 @@ mod tests {
 
     #[test]
     #[serial]
-    fn copy_file_with_relative_paths() {
+    fn copy_file_succeeds_with_relative_path() {
         let work_dir = tempdir().unwrap();
         std::env::set_current_dir(&work_dir).unwrap();
         let src_content = "This is a test file";
@@ -216,7 +216,7 @@ mod tests {
     }
 
     #[test]
-    fn move_file_overwrites_with_force() {
+    fn move_file_overwrites_existing_dest_with_force() {
         let work_dir = tempdir().unwrap();
         let src_content = "This is a test file";
         let src_path = create_temp_file(work_dir.path(), "a", src_content);
@@ -227,7 +227,7 @@ mod tests {
     }
 
     #[test]
-    fn copy_file_overwrites_with_force() {
+    fn copy_file_overwrites_existing_dest_with_force() {
         let work_dir = tempdir().unwrap();
         let src_content = "This is a test file";
         let src_path = create_temp_file(work_dir.path(), "a", src_content);
@@ -302,7 +302,7 @@ mod tests {
     }
 
     #[test]
-    fn move_file_creates_intermediate_directories() {
+    fn move_file_creates_intermediate_directories_automatically() {
         let work_dir = tempdir().unwrap();
         let src_content = "This is a test file";
         let src_path = create_temp_file(work_dir.path(), "a", src_content);
@@ -315,7 +315,7 @@ mod tests {
     }
 
     #[test]
-    fn copy_file_creates_intermediate_directories() {
+    fn copy_file_creates_intermediate_directories_automatically() {
         let work_dir = tempdir().unwrap();
         let src_content = "This is a test file";
         let src_path = create_temp_file(work_dir.path(), "a", src_content);

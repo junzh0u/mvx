@@ -258,7 +258,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn move_file_basic() {
+    fn move_file_to_new_dest() {
         let work_dir = tempdir().unwrap();
         let src_content = "This is a test file";
         let src_path = create_temp_file(work_dir.path(), "a", src_content);
@@ -277,7 +277,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn move_multiple_files() {
+    fn move_multiple_files_to_directory() {
         let work_dir = tempdir().unwrap();
         let src_content = "This is a test file";
         let src_paths = vec![
@@ -303,7 +303,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn move_multiple_files_fails_if_dest_not_dir() {
+    fn move_multiple_files_fails_when_dest_is_not_directory() {
         let work_dir = tempdir().unwrap();
         let src_content = "This is a test file";
         let src_paths = vec![
@@ -331,7 +331,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn copy_file_basic() {
+    fn copy_file_to_new_dest() {
         let work_dir = tempdir().unwrap();
         let src_content = "This is a test file";
         let src_path = create_temp_file(work_dir.path(), "a", src_content);
@@ -350,7 +350,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn move_file_to_directory() {
+    fn move_file_into_directory_with_trailing_slash() {
         let work_dir = tempdir().unwrap();
         let src_content = "This is a test file";
         let src_name = "a";
@@ -370,7 +370,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn copy_file_to_directory() {
+    fn copy_file_into_directory_with_trailing_slash() {
         let work_dir = tempdir().unwrap();
         let src_content = "This is a test file";
         let src_name = "a";
@@ -390,7 +390,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn merge_directories_basic() {
+    fn merge_directory_into_empty_dest() {
         let src_dir = tempdir().unwrap();
         let src_rel_paths = [
             "file1",
@@ -421,7 +421,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn merge_multiple_directories() {
+    fn merge_multiple_directories_into_dest() {
         let src_num = 5;
         let src_dirs = (0..src_num)
             .filter_map(|_| tempdir().ok())
@@ -451,7 +451,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn copy_directories_basic() {
+    fn copy_directory_into_empty_dest() {
         let src_dir = tempdir().unwrap();
         let src_rel_paths = [
             "file1",

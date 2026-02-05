@@ -13,14 +13,14 @@ pub(crate) fn move_or_copy<
 >(
     src: Src,
     dest: Dest,
-    move_or_copy: &MoveOrCopy,
+    moc: &MoveOrCopy,
     force: bool,
-    mp: Option<&indicatif::MultiProgress>,
-    progress_cb: Option<&F>,
+    mp: &indicatif::MultiProgress,
+    progress_cb: F,
 ) -> anyhow::Result<String> {
     let src = src.as_ref();
     log::trace!(
-        "move_or_copy('{}', '{}', {move_or_copy:?}, force={force})",
+        "move_or_copy('{}', '{}', {moc:?}, force={force})",
         src.display(),
         dest.as_ref().display()
     );
@@ -31,7 +31,7 @@ pub(crate) fn move_or_copy<
         fs::create_dir_all(dest_parent)?;
     }
 
-    let result = match move_or_copy {
+    let result = match moc {
         MoveOrCopy::Move => fs::rename(src, &dest),
         MoveOrCopy::Copy => {
             if dest.exists() {
@@ -40,7 +40,7 @@ pub(crate) fn move_or_copy<
             reflink::reflink(src, &dest)
         }
     };
-    let fallback = match move_or_copy {
+    let fallback = match moc {
         MoveOrCopy::Move => "copy and delete",
         MoveOrCopy::Copy => "copy",
     };
@@ -49,11 +49,11 @@ pub(crate) fn move_or_copy<
             return Ok(format!(
                 "{} {}: {}",
                 "→".green().bold(),
-                match move_or_copy {
+                match moc {
                     MoveOrCopy::Move => "Renamed",
                     MoveOrCopy::Copy => "Reflinked",
                 },
-                message_with_arrow(src, dest, move_or_copy)
+                message_with_arrow(src, dest, moc)
             ));
         }
         Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
@@ -71,40 +71,31 @@ pub(crate) fn move_or_copy<
 
     let file_size = fs::metadata(src)?.len();
     let copy_options = fs_extra::file::CopyOptions::new().overwrite(force);
-    if let Some(mp) = mp {
-        let pb_bytes = mp.add(bytes_progress_bar(file_size, src, &dest, move_or_copy));
-        let progress_handler = |transit: fs_extra::file::TransitProcess| {
-            pb_bytes.set_position(transit.copied_bytes);
-            if let Some(ref cb) = progress_cb {
-                cb(transit);
-            }
-        };
-        match move_or_copy {
-            MoveOrCopy::Move => {
-                fs_extra::file::move_file_with_progress(src, &dest, &copy_options, progress_handler)
-            }
-            MoveOrCopy::Copy => {
-                fs_extra::file::copy_with_progress(src, &dest, &copy_options, progress_handler)
-            }
-        }?;
-        pb_bytes.finish_and_clear();
-    } else {
-        match move_or_copy {
-            MoveOrCopy::Move => fs_extra::file::move_file(src, &dest, &copy_options),
-            MoveOrCopy::Copy => fs_extra::file::copy(src, &dest, &copy_options),
-        }?;
-    }
+    let pb_bytes = mp.add(bytes_progress_bar(file_size, src, &dest, moc));
+    let progress_handler = |transit: fs_extra::file::TransitProcess| {
+        pb_bytes.set_position(transit.copied_bytes);
+        progress_cb(transit);
+    };
+    match moc {
+        MoveOrCopy::Move => {
+            fs_extra::file::move_file_with_progress(src, &dest, &copy_options, progress_handler)
+        }
+        MoveOrCopy::Copy => {
+            fs_extra::file::copy_with_progress(src, &dest, &copy_options, progress_handler)
+        }
+    }?;
+    pb_bytes.finish_and_clear();
 
     Ok(format!(
         "{} {} {} in {}: {}",
         "→".green().bold(),
-        match move_or_copy {
+        match moc {
             MoveOrCopy::Move => "Moved",
             MoveOrCopy::Copy => "Copied",
         },
         indicatif::HumanBytes(file_size),
         indicatif::HumanDuration(timer.elapsed()),
-        message_with_arrow(src, dest, move_or_copy)
+        message_with_arrow(src, dest, moc)
     ))
 }
 
@@ -148,7 +139,7 @@ mod tests {
     use super::*;
     use crate::tests::{
         assert_error_with_msg, assert_file_copied, assert_file_moved, assert_file_not_moved,
-        create_temp_file,
+        create_temp_file, hidden_multi_progress,
     };
     use serial_test::serial;
     use std::fs;
@@ -159,7 +150,14 @@ mod tests {
         dest: Dest,
         force: bool,
     ) -> anyhow::Result<String> {
-        move_or_copy(src, dest, &MoveOrCopy::Move, force, None, None::<&fn(_)>)
+        move_or_copy(
+            src,
+            dest,
+            &MoveOrCopy::Move,
+            force,
+            &hidden_multi_progress(),
+            |_| {},
+        )
     }
 
     fn copy_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
@@ -167,7 +165,14 @@ mod tests {
         dest: Dest,
         force: bool,
     ) -> anyhow::Result<String> {
-        move_or_copy(src, dest, &MoveOrCopy::Copy, force, None, None::<&fn(_)>)
+        move_or_copy(
+            src,
+            dest,
+            &MoveOrCopy::Copy,
+            force,
+            &hidden_multi_progress(),
+            |_| {},
+        )
     }
 
     #[test]

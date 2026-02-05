@@ -1,4 +1,4 @@
-use anyhow::ensure;
+use anyhow::{bail, ensure};
 use colored::Colorize;
 use log::LevelFilter;
 use std::io::Write;
@@ -14,8 +14,12 @@ pub enum MoveOrCopy {
     Copy,
 }
 
-pub fn init_logging(level_filter: LevelFilter) -> Option<indicatif::MultiProgress> {
-    let mp = (level_filter >= LevelFilter::Info).then(indicatif::MultiProgress::new);
+#[must_use]
+pub fn init_logging(level_filter: LevelFilter) -> indicatif::MultiProgress {
+    let mp = indicatif::MultiProgress::new();
+    if level_filter < LevelFilter::Info {
+        mp.set_draw_target(indicatif::ProgressDrawTarget::hidden());
+    }
     let mp_clone = mp.clone();
 
     env_logger::Builder::new()
@@ -44,10 +48,10 @@ pub fn init_logging(level_filter: LevelFilter) -> Option<indicatif::MultiProgres
             .bold();
 
             let msg = format!("{ts} {file_and_line:12} {level} {}", record.args());
-
-            match &mp_clone {
-                Some(mp) => mp.println(msg),
-                None => writeln!(buf, "{msg}"),
+            if mp_clone.is_hidden() {
+                writeln!(buf, "{msg}")
+            } else {
+                mp_clone.println(msg)
             }
         })
         .init();
@@ -61,52 +65,66 @@ pub fn init_logging(level_filter: LevelFilter) -> Option<indicatif::MultiProgres
 pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
     srcs: Srcs,
     dest: Dest,
-    move_or_copy: &MoveOrCopy,
+    moc: &MoveOrCopy,
     force: bool,
-    mp: Option<&indicatif::MultiProgress>,
+    mp: &indicatif::MultiProgress,
     ctrlc: &Receiver<()>,
 ) -> anyhow::Result<String> {
-    let srcs = srcs.as_ref();
+    let srcs = srcs
+        .as_ref()
+        .iter()
+        .map(std::convert::AsRef::as_ref)
+        .collect::<Vec<_>>();
     let dest = dest.as_ref();
     log::trace!(
-        "run_batch('{:?}', '{}', {:?}, {:?})",
-        srcs.iter()
-            .map(|s| s.as_ref().display())
-            .collect::<Vec<_>>(),
+        "run_batch('{:?}', '{}', {:?})",
+        srcs.iter().map(|s| s.display()).collect::<Vec<_>>(),
         dest.display(),
-        mp.map(|_| "MultiProgress"),
-        move_or_copy,
+        moc,
     );
+
+    let mut all_files = true;
+    let mut all_dirs = true;
+    for src in &srcs {
+        if src.is_file() {
+            all_dirs = false;
+        } else if src.is_dir() {
+            all_files = false;
+        } else {
+            bail!(
+                "Source path '{}' is neither a file nor directory.",
+                src.display()
+            );
+        }
+    }
 
     if srcs.len() > 1 {
         ensure!(
             dest.is_dir(),
-            "When copying multiple sources, the destination must be a directory.",
+            "When there are multiple sources, the destination must be a directory.",
+        );
+        ensure!(
+            all_files || all_dirs,
+            "When there are multiple sources, they must be all files or all directories.",
         );
     }
 
+    let spinner = new_spinner(mp, srcs.len() as u64);
     for src in srcs {
         if ctrlc.try_recv().is_ok() {
-            log::error!(
-                "✗ Cancelled: {}",
-                message_with_arrow(src, dest, move_or_copy)
-            );
+            log::error!("✗ Cancelled: {}", message_with_arrow(src, dest, moc));
             std::process::exit(130);
         }
 
-        let src = src.as_ref();
-        ensure!(
-            src.is_file() || src.is_dir(),
-            "Source path '{}' is neither a file nor directory.",
-            src.display()
-        );
+        spinner.set_message(src.display().to_string());
+        spinner.inc(1);
 
         let msg = if src.is_file() {
-            file::move_or_copy(src, dest, move_or_copy, force, mp, None::<&fn(_)>)?
+            file::move_or_copy(src, dest, moc, force, mp, |_| {})?
         } else {
-            dir::merge_or_copy(src, dest, move_or_copy, force, mp, ctrlc)?
+            dir::merge_or_copy(src, dest, moc, force, mp, ctrlc)?
         };
-        println!("{msg}");
+        mp.println(msg)?;
     }
 
     Ok(String::new())
@@ -125,34 +143,50 @@ pub fn ctrlc_channel() -> anyhow::Result<Receiver<()>> {
     Ok(rx)
 }
 
+fn new_spinner(mp: &indicatif::MultiProgress, len: u64) -> indicatif::ProgressBar {
+    let style = indicatif::ProgressStyle::with_template("{spinner:.blue} {pos:>4}/{len:<4} {msg}")
+        .unwrap()
+        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
+    let pb = mp.add(indicatif::ProgressBar::new(len)).with_style(style);
+    if len > 1 {
+        pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    } else {
+        pb.set_draw_target(indicatif::ProgressDrawTarget::hidden());
+    }
+    pb
+}
+
 fn bytes_progress_bar<Src: AsRef<Path>, Dest: AsRef<Path>>(
     size: u64,
     src: Src,
     dest: Dest,
-    move_or_copy: &MoveOrCopy,
+    moc: &MoveOrCopy,
 ) -> indicatif::ProgressBar {
-    let style = indicatif::ProgressStyle::with_template(
-        "{total_bytes:>11} [{bar:40.green/white}] {bytes:<11} ({bytes_per_sec:>13}, ETA: {eta_precise} ) {msg}",
-    ).unwrap().progress_chars(
-        match move_or_copy {
+    let template = if src.as_ref().is_dir() {
+        "{total_bytes:>11} [{bar:40.cyan/white}] {bytes:<11} ({bytes_per_sec:>13}, ETA: {eta_precise} ) {msg}"
+    } else {
+        "{total_bytes:>11} [{bar:40.green/white}] {bytes:<11} ({bytes_per_sec:>13}, ETA: {eta_precise} ) {msg}"
+    };
+    let style = indicatif::ProgressStyle::with_template(template)
+        .unwrap()
+        .progress_chars(match moc {
             MoveOrCopy::Move => "->-",
             MoveOrCopy::Copy => "=>=",
-        }
-    );
+        });
     indicatif::ProgressBar::new(size)
         .with_style(style)
-        .with_message(message_with_arrow(src, dest, move_or_copy))
+        .with_message(message_with_arrow(src, dest, moc))
 }
 
 fn message_with_arrow<Src: AsRef<Path>, Dest: AsRef<Path>>(
     src: Src,
     dest: Dest,
-    move_or_copy: &MoveOrCopy,
+    moc: &MoveOrCopy,
 ) -> String {
     format!(
         "{} {} {}",
         src.as_ref().display(),
-        match move_or_copy {
+        match moc {
             MoveOrCopy::Move => "->",
             MoveOrCopy::Copy => "=>",
         },
@@ -171,6 +205,10 @@ pub(crate) mod tests {
         let (tx, rx) = channel();
         drop(tx);
         rx
+    }
+
+    pub(crate) fn hidden_multi_progress() -> indicatif::MultiProgress {
+        indicatif::MultiProgress::with_draw_target(indicatif::ProgressDrawTarget::hidden())
     }
 
     pub(crate) fn create_temp_file<P: AsRef<Path>>(dir: P, name: &str, content: &str) -> PathBuf {
@@ -257,6 +295,22 @@ pub(crate) mod tests {
         );
     }
 
+    fn _run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
+        srcs: Srcs,
+        dest: Dest,
+        moc: &MoveOrCopy,
+        force: bool,
+    ) -> anyhow::Result<String> {
+        run_batch(
+            srcs,
+            dest,
+            moc,
+            force,
+            &hidden_multi_progress(),
+            &noop_receiver(),
+        )
+    }
+
     #[test]
     fn move_file_to_new_dest() {
         let work_dir = tempdir().unwrap();
@@ -264,15 +318,7 @@ pub(crate) mod tests {
         let src_path = create_temp_file(work_dir.path(), "a", src_content);
         let dest_path = work_dir.path().join("b");
 
-        run_batch(
-            [&src_path],
-            &dest_path,
-            &MoveOrCopy::Move,
-            false,
-            None,
-            &noop_receiver(),
-        )
-        .unwrap();
+        _run_batch([&src_path], &dest_path, &MoveOrCopy::Move, false).unwrap();
         assert_file_moved(&src_path, &dest_path, src_content);
     }
 
@@ -287,15 +333,7 @@ pub(crate) mod tests {
         let dest_dir = work_dir.path().join("dest");
         fs::create_dir_all(&dest_dir).unwrap();
 
-        run_batch(
-            &src_paths,
-            &dest_dir,
-            &MoveOrCopy::Move,
-            false,
-            None,
-            &noop_receiver(),
-        )
-        .unwrap();
+        _run_batch(&src_paths, &dest_dir, &MoveOrCopy::Move, false).unwrap();
         for src_path in src_paths {
             let dest_path = dest_dir.join(src_path.file_name().unwrap());
             assert_file_moved(&src_path, &dest_path, src_content);
@@ -311,18 +349,10 @@ pub(crate) mod tests {
             create_temp_file(work_dir.path(), "b", src_content),
         ];
         let dest_dir = work_dir.path().join("dest");
-        // fs::create_dir_all(&dest_dir).unwrap();
 
         assert_error_with_msg(
-            run_batch(
-                &src_paths,
-                &dest_dir,
-                &MoveOrCopy::Move,
-                false,
-                None,
-                &noop_receiver(),
-            ),
-            "When copying multiple sources, the destination must be a directory.",
+            _run_batch(&src_paths, &dest_dir, &MoveOrCopy::Move, false),
+            "When there are multiple sources, the destination must be a directory.",
         );
         for src_path in src_paths {
             let dest_path = dest_dir.join(src_path.file_name().unwrap());
@@ -331,21 +361,30 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn copy_file_to_new_dest() {
+    fn move_mix_of_files_and_directories_fails() {
+        let work_dir = tempdir().unwrap();
+        let src_dir = tempdir().unwrap();
+        let src_paths = vec![
+            create_temp_file(work_dir.path(), "a", "This is a test file"),
+            src_dir.path().to_path_buf(),
+        ];
+        let dest_dir = work_dir.path().join("dest");
+        fs::create_dir_all(&dest_dir).unwrap();
+
+        assert_error_with_msg(
+            _run_batch(&src_paths, &dest_dir, &MoveOrCopy::Move, false),
+            "When there are multiple sources, they must be all files or all directories.",
+        );
+    }
+
+    #[test]
+    fn copy_file_basic() {
         let work_dir = tempdir().unwrap();
         let src_content = "This is a test file";
         let src_path = create_temp_file(work_dir.path(), "a", src_content);
         let dest_path = work_dir.path().join("b");
 
-        run_batch(
-            [&src_path],
-            &dest_path,
-            &MoveOrCopy::Copy,
-            false,
-            None,
-            &noop_receiver(),
-        )
-        .unwrap();
+        _run_batch([&src_path], &dest_path, &MoveOrCopy::Copy, false).unwrap();
         assert_file_copied(&src_path, &dest_path);
     }
 
@@ -357,15 +396,7 @@ pub(crate) mod tests {
         let src_path = create_temp_file(&work_dir, src_name, src_content);
         let dest_dir = work_dir.path().join("b/c/");
 
-        run_batch(
-            [&src_path],
-            &dest_dir,
-            &MoveOrCopy::Move,
-            false,
-            None,
-            &noop_receiver(),
-        )
-        .unwrap();
+        _run_batch([&src_path], &dest_dir, &MoveOrCopy::Move, false).unwrap();
         assert_file_moved(src_path, dest_dir.join(src_name), src_content);
     }
 
@@ -377,15 +408,7 @@ pub(crate) mod tests {
         let src_path = create_temp_file(&work_dir, src_name, src_content);
         let dest_dir = work_dir.path().join("b/c/");
 
-        run_batch(
-            [&src_path],
-            &dest_dir,
-            &MoveOrCopy::Copy,
-            false,
-            None,
-            &noop_receiver(),
-        )
-        .unwrap();
+        _run_batch([&src_path], &dest_dir, &MoveOrCopy::Copy, false).unwrap();
         assert_file_copied(src_path, dest_dir.join(src_name));
     }
 
@@ -404,15 +427,7 @@ pub(crate) mod tests {
         }
 
         let dest_dir = tempdir().unwrap();
-        run_batch(
-            [&src_dir],
-            &dest_dir,
-            &MoveOrCopy::Move,
-            false,
-            None,
-            &noop_receiver(),
-        )
-        .unwrap();
+        _run_batch([&src_dir], &dest_dir, &MoveOrCopy::Move, false).unwrap();
         for path in src_rel_paths {
             let src_path = src_dir.path().join(path);
             let dest_path = dest_dir.path().join(path);
@@ -434,15 +449,7 @@ pub(crate) mod tests {
         });
 
         let dest_dir = tempdir().unwrap();
-        run_batch(
-            &src_dirs,
-            &dest_dir,
-            &MoveOrCopy::Move,
-            false,
-            None,
-            &noop_receiver(),
-        )
-        .unwrap();
+        _run_batch(&src_dirs, &dest_dir, &MoveOrCopy::Move, false).unwrap();
         (0..src_num).for_each(|i| {
             let src_path = src_dirs[i].path().join(&src_rel_paths[i]);
             let dest_path = dest_dir.path().join(&src_rel_paths[i]);
@@ -465,15 +472,7 @@ pub(crate) mod tests {
         }
 
         let dest_dir = tempdir().unwrap();
-        run_batch(
-            [&src_dir],
-            &dest_dir,
-            &MoveOrCopy::Copy,
-            false,
-            None,
-            &noop_receiver(),
-        )
-        .unwrap();
+        _run_batch([&src_dir], &dest_dir, &MoveOrCopy::Copy, false).unwrap();
         for path in src_rel_paths {
             let src_path = src_dir.path().join(path);
             let dest_path = dest_dir.path().join(path);

@@ -31,7 +31,7 @@ fn main() {
         &cli.dest,
         &mvx::MoveOrCopy::Move,
         cli.force,
-        mp.as_ref(),
+        &mp,
         &ctrlc,
     ) {
         eprintln!("{} {:?}", "✗".red().bold(), e);

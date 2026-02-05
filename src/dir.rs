@@ -10,15 +10,15 @@ use std::{
 pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
     src: Src,
     dest: Dest,
-    move_or_copy: &MoveOrCopy,
+    moc: &MoveOrCopy,
     force: bool,
-    mp: Option<&indicatif::MultiProgress>,
+    mp: &indicatif::MultiProgress,
     ctrlc: &Receiver<()>,
 ) -> anyhow::Result<String> {
     let src = src.as_ref();
     let dest = dest.as_ref();
     log::trace!(
-        "merge_or_copy('{}', '{}', {move_or_copy:?})",
+        "merge_or_copy('{}', '{}', {moc:?})",
         src.display(),
         dest.display()
     );
@@ -46,8 +46,7 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
     files.sort_by_key(|p| p.to_string_lossy().to_string());
     let total_size = get_total_size_of_files(&files);
 
-    let pb_total_bytes =
-        mp.map(|mp| mp.add(bytes_progress_bar(total_size, src, dest, move_or_copy)));
+    let pb_total_bytes = mp.add(bytes_progress_bar(total_size, src, dest, moc));
 
     let mut msgs: Vec<String> = Vec::new();
     for file in files {
@@ -57,53 +56,46 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
             for msg in &msgs {
                 log::info!("{msg}");
             }
-            log::error!(
-                "✗ Cancelled: {}",
-                message_with_arrow(file, dest_file, move_or_copy)
+            log::error!("✗ Cancelled: {}", message_with_arrow(file, dest_file, moc));
+            pb_total_bytes.abandon_with_message(
+                format!("✗ {}", pb_total_bytes.message())
+                    .red()
+                    .bold()
+                    .to_string(),
             );
-            if let Some(pb) = pb_total_bytes {
-                pb.abandon_with_message(format!("✗ {}", pb.message()).red().bold().to_string());
-            }
             std::process::exit(130);
         }
 
+        let init_pos = pb_total_bytes.position();
         let msg = crate::file::move_or_copy(
             file,
             &dest_file,
-            move_or_copy,
+            moc,
             force,
             mp,
-            pb_total_bytes
-                .as_ref()
-                .map(|pb| {
-                    let init_pos = pb.position();
-                    move |transit: fs_extra::file::TransitProcess| {
-                        pb.set_position(init_pos + transit.copied_bytes);
-                    }
-                })
-                .as_ref(),
+            |transit: fs_extra::file::TransitProcess| {
+                pb_total_bytes.set_position(init_pos + transit.copied_bytes);
+            },
         )?;
         msgs.push(msg);
     }
 
-    match move_or_copy {
+    match moc {
         MoveOrCopy::Move => remove_empty_dir(src)?,
         MoveOrCopy::Copy => (),
     }
-    if let Some(pb) = pb_total_bytes {
-        pb.finish_and_clear();
-    }
+    pb_total_bytes.finish_and_clear();
 
     Ok(format!(
         "{} {} {} in {}: {}",
         "↣".green().bold(),
-        match move_or_copy {
+        match moc {
             MoveOrCopy::Move => "Merged",
             MoveOrCopy::Copy => "Copy-merged",
         },
         indicatif::HumanBytes(total_size),
         indicatif::HumanDuration(timer.elapsed()),
-        message_with_arrow(src, dest, move_or_copy),
+        message_with_arrow(src, dest, moc),
     ))
 }
 
@@ -145,7 +137,10 @@ fn get_total_size_of_files<P: AsRef<Path>>(files: &[P]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::{assert_file_copied, assert_file_moved, create_temp_file, noop_receiver};
+    use crate::tests::{
+        assert_file_copied, assert_file_moved, create_temp_file, hidden_multi_progress,
+        noop_receiver,
+    };
     use std::collections::HashSet;
     use tempfile::tempdir;
 
@@ -179,6 +174,22 @@ mod tests {
         assert_eq!(get_total_size_of_files(&files), expected_size);
     }
 
+    fn _merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
+        src: Src,
+        dest: Dest,
+        moc: &MoveOrCopy,
+        force: bool,
+    ) -> anyhow::Result<String> {
+        merge_or_copy(
+            src,
+            dest,
+            moc,
+            force,
+            &hidden_multi_progress(),
+            &noop_receiver(),
+        )
+    }
+
     #[test]
     fn merge_directory_overwrites_existing_files_with_force() {
         let src_dir = tempdir().unwrap();
@@ -205,15 +216,7 @@ mod tests {
             create_temp_file(dest_dir.path(), path, &format!("From dest: {path}"));
         }
 
-        merge_or_copy(
-            &src_dir,
-            &dest_dir,
-            &MoveOrCopy::Move,
-            true,
-            None,
-            &noop_receiver(),
-        )
-        .unwrap();
+        _merge_or_copy(&src_dir, &dest_dir, &MoveOrCopy::Move, true).unwrap();
         for path in src_rel_paths {
             let src_path = src_dir.path().join(path);
             let dest_path = dest_dir.path().join(path);
@@ -255,15 +258,7 @@ mod tests {
             create_temp_file(dest_dir.path(), path, &format!("From dest: {path}"));
         }
 
-        merge_or_copy(
-            &src_dir,
-            &dest_dir,
-            &MoveOrCopy::Copy,
-            true,
-            None,
-            &noop_receiver(),
-        )
-        .unwrap();
+        _merge_or_copy(&src_dir, &dest_dir, &MoveOrCopy::Copy, true).unwrap();
         for path in src_rel_paths {
             let src_path = src_dir.path().join(path);
             let dest_path = dest_dir.path().join(path);
@@ -294,15 +289,7 @@ mod tests {
         }
 
         // force=false should work because no files overlap
-        merge_or_copy(
-            &src_dir,
-            &dest_dir,
-            &MoveOrCopy::Move,
-            false,
-            None,
-            &noop_receiver(),
-        )
-        .unwrap();
+        _merge_or_copy(&src_dir, &dest_dir, &MoveOrCopy::Move, false).unwrap();
 
         for path in src_rel_paths {
             let src_path = src_dir.path().join(path);
@@ -328,14 +315,7 @@ mod tests {
         create_temp_file(dest_dir.path(), "file1", "From dest");
 
         // force=false should fail because file1 exists in both
-        let result = merge_or_copy(
-            &src_dir,
-            &dest_dir,
-            &MoveOrCopy::Move,
-            false,
-            None,
-            &noop_receiver(),
-        );
+        let result = _merge_or_copy(&src_dir, &dest_dir, &MoveOrCopy::Move, false);
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("already exists"));

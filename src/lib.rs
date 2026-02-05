@@ -14,6 +14,32 @@ pub enum MoveOrCopy {
     Copy,
 }
 
+impl MoveOrCopy {
+    #[must_use]
+    pub const fn verb(&self) -> &'static str {
+        match self {
+            Self::Move => "move",
+            Self::Copy => "copy",
+        }
+    }
+
+    #[must_use]
+    pub const fn arrow(&self) -> &'static str {
+        match self {
+            Self::Move => "->",
+            Self::Copy => "=>",
+        }
+    }
+
+    #[must_use]
+    pub const fn progress_chars(&self) -> &'static str {
+        match self {
+            Self::Move => "->-",
+            Self::Copy => "=>=",
+        }
+    }
+}
+
 #[must_use]
 pub fn init_logging(level_filter: LevelFilter) -> indicatif::MultiProgress {
     let mp = indicatif::MultiProgress::new();
@@ -111,12 +137,13 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
     }
 
     if dry_run {
-        let verb = match moc {
-            MoveOrCopy::Move => "move",
-            MoveOrCopy::Copy => "copy",
-        };
         for src in srcs {
-            println!("Would {} '{}' to '{}'", verb, src.display(), dest.display());
+            println!(
+                "Would {} '{}' to '{}'",
+                moc.verb(),
+                src.display(),
+                dest.display()
+            );
         }
         return Ok(String::new());
     }
@@ -181,10 +208,7 @@ fn bytes_progress_bar<Src: AsRef<Path>, Dest: AsRef<Path>>(
     };
     let style = indicatif::ProgressStyle::with_template(template)
         .unwrap()
-        .progress_chars(match moc {
-            MoveOrCopy::Move => "->-",
-            MoveOrCopy::Copy => "=>=",
-        });
+        .progress_chars(moc.progress_chars());
     indicatif::ProgressBar::new(size)
         .with_style(style)
         .with_message(message_with_arrow(src, dest, moc))
@@ -198,10 +222,7 @@ fn message_with_arrow<Src: AsRef<Path>, Dest: AsRef<Path>>(
     format!(
         "{} {} {}",
         src.as_ref().display(),
-        match moc {
-            MoveOrCopy::Move => "->",
-            MoveOrCopy::Copy => "=>",
-        },
+        moc.arrow(),
         dest.as_ref().display()
     )
 }

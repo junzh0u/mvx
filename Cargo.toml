@@ -14,7 +14,7 @@ authors = ["Jun Zhou <github@junz.info>"]
 [dependencies]
 anyhow = "1.0.98"
 chrono = "0.4.41"
-clap = { version = "4.5.38", features = ["derive"] }
+clap = { version = "4.5.38", features = ["derive", "env"] }
 clap-verbosity-flag = "3.0.3"
 colored = "3.0.0"
 ctrlc = "3.5.1"

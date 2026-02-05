@@ -13,7 +13,7 @@ pub struct Cli {
     force: bool,
 
     /// Show what would be done without actually doing it
-    #[arg(short = 'n', long)]
+    #[arg(short = 'n', long, env = "MODE_DRY_RUN", value_parser = clap::builder::FalseyValueParser::new())]
     dry_run: bool,
 
     /// Paths to move from

@@ -12,6 +12,10 @@ pub struct Cli {
     #[arg(short = 'f', long)]
     force: bool,
 
+    /// Show what would be done without actually doing it
+    #[arg(short = 'n', long)]
+    dry_run: bool,
+
     /// Paths to move from
     #[arg(required = true)]
     srcs: Vec<PathBuf>,
@@ -31,6 +35,7 @@ fn main() {
         &cli.dest,
         &mvx::MoveOrCopy::Move,
         cli.force,
+        cli.dry_run,
         &mp,
         &ctrlc,
     ) {

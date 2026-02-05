@@ -67,6 +67,7 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
     dest: Dest,
     moc: &MoveOrCopy,
     force: bool,
+    dry_run: bool,
     mp: &indicatif::MultiProgress,
     ctrlc: &Receiver<()>,
 ) -> anyhow::Result<String> {
@@ -107,6 +108,17 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
             all_files || all_dirs,
             "When there are multiple sources, they must be all files or all directories.",
         );
+    }
+
+    if dry_run {
+        let verb = match moc {
+            MoveOrCopy::Move => "move",
+            MoveOrCopy::Copy => "copy",
+        };
+        for src in srcs {
+            println!("Would {} '{}' to '{}'", verb, src.display(), dest.display());
+        }
+        return Ok(String::new());
     }
 
     let spinner = new_spinner(mp, srcs.len() as u64);
@@ -306,6 +318,7 @@ pub(crate) mod tests {
             dest,
             moc,
             force,
+            false,
             &hidden_multi_progress(),
             &noop_receiver(),
         )

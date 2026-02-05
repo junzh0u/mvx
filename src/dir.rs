@@ -91,7 +91,7 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
         "↣".green().bold(),
         match moc {
             MoveOrCopy::Move => "Merged",
-            MoveOrCopy::Copy => "Copy-merged",
+            MoveOrCopy::Copy => "Copied",
         },
         indicatif::HumanBytes(total_size),
         indicatif::HumanDuration(timer.elapsed()),

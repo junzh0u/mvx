@@ -1,11 +1,7 @@
 use crate::{Ctx, MoveOrCopy, bytes_progress_bar, message_with_arrow};
 use anyhow::ensure;
 use colored::Colorize;
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    sync::atomic::Ordering,
-};
+use std::{fs, path::Path, sync::atomic::Ordering};
 
 pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
     src: Src,
@@ -40,69 +36,17 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
 
     let timer = std::time::Instant::now();
 
-    let mut files = collect_files_in_dir(src)?;
-    files.sort_by_key(|p| p.to_string_lossy().to_string());
-    let total_size = get_total_size_of_files(&files);
-
-    let pb_total_bytes = ctx
+    let total_size = collect_total_size(src);
+    let pb = ctx
         .mp
         .add(bytes_progress_bar(total_size, src, dest, ctx.moc));
 
-    let mut msgs: Vec<String> = Vec::new();
-    for file in files {
-        let rel_path = file.strip_prefix(src)?;
-        let dest_file = dest.join(rel_path);
-        if ctx.ctrlc.load(Ordering::Relaxed) {
-            for msg in &msgs {
-                log::info!("{msg}");
-            }
-            log::error!(
-                "✗ Cancelled: {}",
-                message_with_arrow(file, dest_file, ctx.moc)
-            );
-            pb_total_bytes.abandon_with_message(
-                format!("✗ {}", pb_total_bytes.message())
-                    .red()
-                    .bold()
-                    .to_string(),
-            );
-            std::process::exit(130);
-        }
+    merge_or_copy_recursive(src, dest, ctx, &pb)?;
 
-        if file.is_dir() {
-            fs::create_dir_all(&dest_file)?;
-            if matches!(ctx.moc, MoveOrCopy::Move) {
-                let _ = fs::remove_dir(&file);
-                if let Some(parent) = file.parent() {
-                    remove_empty_ancestors(parent, src);
-                }
-            }
-            continue;
-        }
-
-        let file_parent = file.parent().map(Path::to_path_buf);
-        let init_pos = pb_total_bytes.position();
-        let msg = crate::file::move_or_copy(
-            file,
-            &dest_file,
-            |copied_bytes: u64| {
-                pb_total_bytes.set_position(init_pos + copied_bytes);
-            },
-            ctx,
-        )?;
-        msgs.push(msg);
-        if matches!(ctx.moc, MoveOrCopy::Move)
-            && let Some(ref parent) = file_parent
-        {
-            remove_empty_ancestors(parent, src);
-        }
+    if matches!(ctx.moc, MoveOrCopy::Move) {
+        let _ = fs::remove_dir(src);
     }
-
-    match ctx.moc {
-        MoveOrCopy::Move if src.exists() => remove_empty_dir(src)?,
-        _ => (),
-    }
-    pb_total_bytes.finish_and_clear();
+    pb.finish_and_clear();
 
     Ok(format!(
         "{} {} {} in {}: {}",
@@ -117,61 +61,70 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
     ))
 }
 
-fn remove_empty_ancestors(from: &Path, up_to: &Path) {
-    let mut dir = from.to_path_buf();
-    loop {
-        if fs::remove_dir(&dir).is_err() {
-            break;
-        }
-        log::debug!("Removed empty directory: '{}'", dir.display());
-        if dir == up_to {
-            break;
-        }
-        dir = match dir.parent() {
-            Some(p) => p.to_path_buf(),
-            None => break,
-        };
-    }
-}
-
-fn remove_empty_dir<P: AsRef<Path>>(dir: P) -> std::io::Result<()> {
-    let dir = dir.as_ref();
-    log::trace!("remove_empty_dir('{}')", dir.display());
-    for entry in fs::read_dir(dir)? {
-        remove_empty_dir(entry?.path())?;
-    }
-    fs::remove_dir(dir)?;
-    log::debug!("Removed empty directory: '{}'", dir.display());
-    Ok(())
-}
-
-fn collect_files_in_dir<P: AsRef<Path>>(dir: P) -> std::io::Result<Vec<PathBuf>> {
-    Ok(fs::read_dir(dir)?
+fn merge_or_copy_recursive(
+    src: &Path,
+    dest: &Path,
+    ctx: &Ctx,
+    pb: &indicatif::ProgressBar,
+) -> anyhow::Result<Vec<String>> {
+    let mut entries: Vec<_> = fs::read_dir(src)?
         .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .flat_map(|path| {
+        .map(|e| e.path())
+        .collect();
+    entries.sort();
+
+    let mut msgs = Vec::new();
+    for entry in entries {
+        let name = entry.file_name().unwrap();
+        let dest_entry = dest.join(name);
+
+        if ctx.ctrlc.load(Ordering::Relaxed) {
+            for msg in &msgs {
+                log::info!("{msg}");
+            }
+            log::error!(
+                "✗ Cancelled: {}",
+                message_with_arrow(&entry, &dest_entry, ctx.moc)
+            );
+            pb.abandon_with_message(format!("✗ {}", pb.message()).red().bold().to_string());
+            std::process::exit(130);
+        }
+
+        if entry.is_dir() {
+            fs::create_dir_all(&dest_entry)?;
+            msgs.extend(merge_or_copy_recursive(&entry, &dest_entry, ctx, pb)?);
+            if matches!(ctx.moc, MoveOrCopy::Move) {
+                let _ = fs::remove_dir(&entry);
+            }
+        } else {
+            let init_pos = pb.position();
+            let msg = crate::file::move_or_copy(
+                &entry,
+                &dest_entry,
+                |copied_bytes: u64| {
+                    pb.set_position(init_pos + copied_bytes);
+                },
+                ctx,
+            )?;
+            msgs.push(msg);
+        }
+    }
+    Ok(msgs)
+}
+
+fn collect_total_size(dir: &Path) -> u64 {
+    fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .map(|path| {
             if path.is_dir() {
-                let entries = collect_files_in_dir(&path).unwrap_or_default();
-                if entries.is_empty() {
-                    vec![path] // empty directory — include it
-                } else {
-                    entries
-                }
-            } else if path.is_file() {
-                vec![path]
+                collect_total_size(&path)
             } else {
-                panic!("Unexpected path type: {}", path.display())
+                fs::metadata(&path).map(|m| m.len()).unwrap_or(0)
             }
         })
-        .collect())
-}
-
-fn get_total_size_of_files<P: AsRef<Path>>(files: &[P]) -> u64 {
-    files
-        .iter()
-        .filter_map(|f| fs::metadata(f).ok())
-        .filter(std::fs::Metadata::is_file)
-        .map(|m| m.len())
         .sum()
 }
 
@@ -181,38 +134,7 @@ mod tests {
     use crate::tests::{
         assert_file_copied, assert_file_moved, create_temp_file, hidden_multi_progress, noop_ctrlc,
     };
-    use std::collections::HashSet;
     use tempfile::tempdir;
-
-    #[test]
-    fn get_total_size_of_files_empty() {
-        let files: Vec<std::path::PathBuf> = vec![];
-        assert_eq!(get_total_size_of_files(&files), 0);
-    }
-
-    #[test]
-    fn get_total_size_of_files_single() {
-        let temp_dir = tempdir().unwrap();
-        let file_contents = [("file1", "hello")];
-        let files: Vec<_> = file_contents
-            .iter()
-            .map(|(file, content)| create_temp_file(temp_dir.path(), file, content))
-            .collect();
-        let expected_size: u64 = file_contents.iter().map(|(_, c)| c.len() as u64).sum();
-        assert_eq!(get_total_size_of_files(&files), expected_size);
-    }
-
-    #[test]
-    fn get_total_size_of_files_multiple() {
-        let temp_dir = tempdir().unwrap();
-        let file_contents = [("file1", "abc"), ("file2", "defgh")];
-        let files: Vec<_> = file_contents
-            .iter()
-            .map(|(file, content)| create_temp_file(temp_dir.path(), file, content))
-            .collect();
-        let expected_size: u64 = file_contents.iter().map(|(_, c)| c.len() as u64).sum();
-        assert_eq!(get_total_size_of_files(&files), expected_size);
-    }
 
     fn _merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
         src: Src,
@@ -230,6 +152,20 @@ mod tests {
             ctrlc: &ctrlc,
         };
         merge_or_copy(src, dest, &ctx)
+    }
+
+    #[test]
+    fn collect_total_size_empty() {
+        let temp_dir = tempdir().unwrap();
+        assert_eq!(collect_total_size(temp_dir.path()), 0);
+    }
+
+    #[test]
+    fn collect_total_size_with_files() {
+        let temp_dir = tempdir().unwrap();
+        create_temp_file(temp_dir.path(), "file1", "abc");
+        create_temp_file(temp_dir.path(), "subdir/file2", "defgh");
+        assert_eq!(collect_total_size(temp_dir.path()), 8);
     }
 
     #[test]
@@ -364,37 +300,30 @@ mod tests {
     }
 
     #[test]
-    fn collect_files_in_dir_works() {
-        let temp_dir = tempdir().unwrap();
-        let rel_paths = vec![
-            "file1",
-            "file2",
-            "subdir/subfile1",
-            "subdir/subfile2",
-            "subdir/nested/nested_file",
-        ];
-        rel_paths.iter().for_each(|path| {
-            create_temp_file(temp_dir.path(), path, "");
-        });
+    fn merge_preserves_empty_directories() {
+        let src_dir = tempdir().unwrap();
+        create_temp_file(src_dir.path(), "file1", "content");
+        fs::create_dir_all(src_dir.path().join("empty_dir")).unwrap();
+        fs::create_dir_all(src_dir.path().join("subdir/empty_nested")).unwrap();
 
-        let collected_files: HashSet<PathBuf> = collect_files_in_dir(temp_dir.path())
-            .unwrap()
-            .into_iter()
-            .collect();
-        let expected_files: HashSet<PathBuf> = rel_paths
-            .into_iter()
-            .map(|path| temp_dir.path().join(path))
-            .into_iter()
-            .collect();
-        assert_eq!(collected_files, expected_files);
+        let dest_dir = tempdir().unwrap();
+        _merge_or_copy(&src_dir, &dest_dir, MoveOrCopy::Move, false).unwrap();
+
+        assert!(dest_dir.path().join("empty_dir").is_dir());
+        assert!(dest_dir.path().join("subdir/empty_nested").is_dir());
+        assert!(!src_dir.path().exists());
     }
 
     #[test]
-    fn collect_files_in_empty_dir_works() {
-        let temp_dir = tempdir().unwrap();
-        assert!(
-            collect_files_in_dir(temp_dir.path()).unwrap().is_empty(),
-            "Result should be empty for an empty directory"
-        );
+    fn copy_preserves_empty_directories() {
+        let src_dir = tempdir().unwrap();
+        create_temp_file(src_dir.path(), "file1", "content");
+        fs::create_dir_all(src_dir.path().join("empty_dir")).unwrap();
+
+        let dest_dir = tempdir().unwrap();
+        _merge_or_copy(&src_dir, &dest_dir, MoveOrCopy::Copy, false).unwrap();
+
+        assert!(dest_dir.path().join("empty_dir").is_dir());
+        assert!(src_dir.path().join("empty_dir").is_dir());
     }
 }

@@ -1,26 +1,24 @@
-use crate::{MoveOrCopy, bytes_progress_bar, message_with_arrow};
+use crate::{Ctx, MoveOrCopy, bytes_progress_bar, message_with_arrow};
 use anyhow::ensure;
 use colored::Colorize;
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::Ordering,
 };
 
 pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
     src: Src,
     dest: Dest,
-    moc: &MoveOrCopy,
-    force: bool,
-    mp: &indicatif::MultiProgress,
-    ctrlc: &AtomicBool,
+    ctx: &Ctx,
 ) -> anyhow::Result<String> {
     let src = src.as_ref();
     let dest = dest.as_ref();
     log::trace!(
-        "merge_or_copy('{}', '{}', {moc:?})",
+        "merge_or_copy('{}', '{}', {:?})",
         src.display(),
-        dest.display()
+        dest.display(),
+        ctx.moc,
     );
 
     ensure!(src.exists(), "Source '{}' does not exist", src.display());
@@ -46,17 +44,22 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
     files.sort_by_key(|p| p.to_string_lossy().to_string());
     let total_size = get_total_size_of_files(&files);
 
-    let pb_total_bytes = mp.add(bytes_progress_bar(total_size, src, dest, moc));
+    let pb_total_bytes = ctx
+        .mp
+        .add(bytes_progress_bar(total_size, src, dest, ctx.moc));
 
     let mut msgs: Vec<String> = Vec::new();
     for file in files {
         let rel_path = file.strip_prefix(src)?;
         let dest_file = dest.join(rel_path);
-        if ctrlc.load(Ordering::Relaxed) {
+        if ctx.ctrlc.load(Ordering::Relaxed) {
             for msg in &msgs {
                 log::info!("{msg}");
             }
-            log::error!("✗ Cancelled: {}", message_with_arrow(file, dest_file, moc));
+            log::error!(
+                "✗ Cancelled: {}",
+                message_with_arrow(file, dest_file, ctx.moc)
+            );
             pb_total_bytes.abandon_with_message(
                 format!("✗ {}", pb_total_bytes.message())
                     .red()
@@ -70,18 +73,15 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
         let msg = crate::file::move_or_copy(
             file,
             &dest_file,
-            moc,
-            force,
-            mp,
             |copied_bytes: u64| {
                 pb_total_bytes.set_position(init_pos + copied_bytes);
             },
-            ctrlc,
+            ctx,
         )?;
         msgs.push(msg);
     }
 
-    match moc {
+    match ctx.moc {
         MoveOrCopy::Move => remove_empty_dir(src)?,
         MoveOrCopy::Copy => (),
     }
@@ -90,13 +90,13 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
     Ok(format!(
         "{} {} {} in {}: {}",
         "↣".green().bold(),
-        match moc {
+        match ctx.moc {
             MoveOrCopy::Move => "Merged",
             MoveOrCopy::Copy => "Copied",
         },
         indicatif::HumanBytes(total_size),
         indicatif::HumanDuration(timer.elapsed()),
-        message_with_arrow(src, dest, moc),
+        message_with_arrow(src, dest, ctx.moc),
     ))
 }
 
@@ -177,17 +177,19 @@ mod tests {
     fn _merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
         src: Src,
         dest: Dest,
-        moc: &MoveOrCopy,
+        moc: MoveOrCopy,
         force: bool,
     ) -> anyhow::Result<String> {
-        merge_or_copy(
-            src,
-            dest,
+        let mp = hidden_multi_progress();
+        let ctrlc = noop_ctrlc();
+        let ctx = Ctx {
             moc,
             force,
-            &hidden_multi_progress(),
-            &noop_ctrlc(),
-        )
+            dry_run: false,
+            mp: &mp,
+            ctrlc: &ctrlc,
+        };
+        merge_or_copy(src, dest, &ctx)
     }
 
     #[test]
@@ -216,7 +218,7 @@ mod tests {
             create_temp_file(dest_dir.path(), path, &format!("From dest: {path}"));
         }
 
-        _merge_or_copy(&src_dir, &dest_dir, &MoveOrCopy::Move, true).unwrap();
+        _merge_or_copy(&src_dir, &dest_dir, MoveOrCopy::Move, true).unwrap();
         for path in src_rel_paths {
             let src_path = src_dir.path().join(path);
             let dest_path = dest_dir.path().join(path);
@@ -258,7 +260,7 @@ mod tests {
             create_temp_file(dest_dir.path(), path, &format!("From dest: {path}"));
         }
 
-        _merge_or_copy(&src_dir, &dest_dir, &MoveOrCopy::Copy, true).unwrap();
+        _merge_or_copy(&src_dir, &dest_dir, MoveOrCopy::Copy, true).unwrap();
         for path in src_rel_paths {
             let src_path = src_dir.path().join(path);
             let dest_path = dest_dir.path().join(path);
@@ -289,7 +291,7 @@ mod tests {
         }
 
         // force=false should work because no files overlap
-        _merge_or_copy(&src_dir, &dest_dir, &MoveOrCopy::Move, false).unwrap();
+        _merge_or_copy(&src_dir, &dest_dir, MoveOrCopy::Move, false).unwrap();
 
         for path in src_rel_paths {
             let src_path = src_dir.path().join(path);
@@ -315,7 +317,7 @@ mod tests {
         create_temp_file(dest_dir.path(), "file1", "From dest");
 
         // force=false should fail because file1 exists in both
-        let result = _merge_or_copy(&src_dir, &dest_dir, &MoveOrCopy::Move, false);
+        let result = _merge_or_copy(&src_dir, &dest_dir, MoveOrCopy::Move, false);
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("already exists"));

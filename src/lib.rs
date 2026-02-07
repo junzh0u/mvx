@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 mod dir;
 mod file;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum MoveOrCopy {
     Move,
     Copy,
@@ -39,6 +39,14 @@ impl MoveOrCopy {
             Self::Copy => "=>=",
         }
     }
+}
+
+pub struct Ctx<'a> {
+    pub moc: MoveOrCopy,
+    pub force: bool,
+    pub dry_run: bool,
+    pub mp: &'a indicatif::MultiProgress,
+    pub ctrlc: &'a AtomicBool,
 }
 
 #[must_use]
@@ -92,11 +100,7 @@ pub fn init_logging(level_filter: LevelFilter) -> indicatif::MultiProgress {
 pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
     srcs: Srcs,
     dest: Dest,
-    moc: &MoveOrCopy,
-    force: bool,
-    dry_run: bool,
-    mp: &indicatif::MultiProgress,
-    ctrlc: &AtomicBool,
+    ctx: &Ctx,
 ) -> anyhow::Result<String> {
     let srcs = srcs
         .as_ref()
@@ -108,7 +112,7 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
         "run_batch('{:?}', '{}', {:?})",
         srcs.iter().map(|s| s.display()).collect::<Vec<_>>(),
         dest.display(),
-        moc,
+        ctx.moc,
     );
 
     let mut all_files = true;
@@ -137,11 +141,11 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
         );
     }
 
-    if dry_run {
+    if ctx.dry_run {
         for src in srcs {
             println!(
                 "Would {} '{}' to '{}'",
-                moc.verb(),
+                ctx.moc.verb(),
                 src.display(),
                 dest.display()
             );
@@ -149,10 +153,10 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
         return Ok(String::new());
     }
 
-    let spinner = new_spinner(mp, srcs.len() as u64);
+    let spinner = new_spinner(ctx.mp, srcs.len() as u64);
     for src in srcs {
-        if ctrlc.load(Ordering::Relaxed) {
-            log::error!("✗ Cancelled: {}", message_with_arrow(src, dest, moc));
+        if ctx.ctrlc.load(Ordering::Relaxed) {
+            log::error!("✗ Cancelled: {}", message_with_arrow(src, dest, ctx.moc));
             std::process::exit(130);
         }
 
@@ -160,11 +164,11 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
         spinner.inc(1);
 
         let msg = if src.is_file() {
-            file::move_or_copy(src, dest, moc, force, mp, |_| {}, ctrlc)?
+            file::move_or_copy(src, dest, |_| {}, ctx)?
         } else {
-            dir::merge_or_copy(src, dest, moc, force, mp, ctrlc)?
+            dir::merge_or_copy(src, dest, ctx)?
         };
-        mp.println(msg)?;
+        ctx.mp.println(msg)?;
     }
 
     Ok(String::new())
@@ -206,7 +210,7 @@ fn bytes_progress_bar<Src: AsRef<Path>, Dest: AsRef<Path>>(
     size: u64,
     src: Src,
     dest: Dest,
-    moc: &MoveOrCopy,
+    moc: MoveOrCopy,
 ) -> indicatif::ProgressBar {
     let template = if src.as_ref().is_dir() {
         "{total_bytes:>11} [{bar:40.cyan/white}] {bytes:<11} ({bytes_per_sec:>13}, ETA: {eta_precise} ) {msg}"
@@ -224,7 +228,7 @@ fn bytes_progress_bar<Src: AsRef<Path>, Dest: AsRef<Path>>(
 fn message_with_arrow<Src: AsRef<Path>, Dest: AsRef<Path>>(
     src: Src,
     dest: Dest,
-    moc: &MoveOrCopy,
+    moc: MoveOrCopy,
 ) -> String {
     format!(
         "{} {} {}",
@@ -336,18 +340,19 @@ pub(crate) mod tests {
     fn _run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
         srcs: Srcs,
         dest: Dest,
-        moc: &MoveOrCopy,
+        moc: MoveOrCopy,
         force: bool,
     ) -> anyhow::Result<String> {
-        run_batch(
-            srcs,
-            dest,
+        let mp = hidden_multi_progress();
+        let ctrlc = noop_ctrlc();
+        let ctx = Ctx {
             moc,
             force,
-            false,
-            &hidden_multi_progress(),
-            &noop_ctrlc(),
-        )
+            dry_run: false,
+            mp: &mp,
+            ctrlc: &ctrlc,
+        };
+        run_batch(srcs, dest, &ctx)
     }
 
     #[test]
@@ -357,7 +362,7 @@ pub(crate) mod tests {
         let src_path = create_temp_file(work_dir.path(), "a", src_content);
         let dest_path = work_dir.path().join("b");
 
-        _run_batch([&src_path], &dest_path, &MoveOrCopy::Move, false).unwrap();
+        _run_batch([&src_path], &dest_path, MoveOrCopy::Move, false).unwrap();
         assert_file_moved(&src_path, &dest_path, src_content);
     }
 
@@ -372,7 +377,7 @@ pub(crate) mod tests {
         let dest_dir = work_dir.path().join("dest");
         fs::create_dir_all(&dest_dir).unwrap();
 
-        _run_batch(&src_paths, &dest_dir, &MoveOrCopy::Move, false).unwrap();
+        _run_batch(&src_paths, &dest_dir, MoveOrCopy::Move, false).unwrap();
         for src_path in src_paths {
             let dest_path = dest_dir.join(src_path.file_name().unwrap());
             assert_file_moved(&src_path, &dest_path, src_content);
@@ -390,7 +395,7 @@ pub(crate) mod tests {
         let dest_dir = work_dir.path().join("dest");
 
         assert_error_with_msg(
-            _run_batch(&src_paths, &dest_dir, &MoveOrCopy::Move, false),
+            _run_batch(&src_paths, &dest_dir, MoveOrCopy::Move, false),
             "When there are multiple sources, the destination must be a directory.",
         );
         for src_path in src_paths {
@@ -411,7 +416,7 @@ pub(crate) mod tests {
         fs::create_dir_all(&dest_dir).unwrap();
 
         assert_error_with_msg(
-            _run_batch(&src_paths, &dest_dir, &MoveOrCopy::Move, false),
+            _run_batch(&src_paths, &dest_dir, MoveOrCopy::Move, false),
             "When there are multiple sources, they must be all files or all directories.",
         );
     }
@@ -423,7 +428,7 @@ pub(crate) mod tests {
         let src_path = create_temp_file(work_dir.path(), "a", src_content);
         let dest_path = work_dir.path().join("b");
 
-        _run_batch([&src_path], &dest_path, &MoveOrCopy::Copy, false).unwrap();
+        _run_batch([&src_path], &dest_path, MoveOrCopy::Copy, false).unwrap();
         assert_file_copied(&src_path, &dest_path);
     }
 
@@ -435,7 +440,7 @@ pub(crate) mod tests {
         let src_path = create_temp_file(&work_dir, src_name, src_content);
         let dest_dir = work_dir.path().join("b/c/");
 
-        _run_batch([&src_path], &dest_dir, &MoveOrCopy::Move, false).unwrap();
+        _run_batch([&src_path], &dest_dir, MoveOrCopy::Move, false).unwrap();
         assert_file_moved(src_path, dest_dir.join(src_name), src_content);
     }
 
@@ -447,7 +452,7 @@ pub(crate) mod tests {
         let src_path = create_temp_file(&work_dir, src_name, src_content);
         let dest_dir = work_dir.path().join("b/c/");
 
-        _run_batch([&src_path], &dest_dir, &MoveOrCopy::Copy, false).unwrap();
+        _run_batch([&src_path], &dest_dir, MoveOrCopy::Copy, false).unwrap();
         assert_file_copied(src_path, dest_dir.join(src_name));
     }
 
@@ -466,7 +471,7 @@ pub(crate) mod tests {
         }
 
         let dest_dir = tempdir().unwrap();
-        _run_batch([&src_dir], &dest_dir, &MoveOrCopy::Move, false).unwrap();
+        _run_batch([&src_dir], &dest_dir, MoveOrCopy::Move, false).unwrap();
         for path in src_rel_paths {
             let src_path = src_dir.path().join(path);
             let dest_path = dest_dir.path().join(path);
@@ -488,7 +493,7 @@ pub(crate) mod tests {
         });
 
         let dest_dir = tempdir().unwrap();
-        _run_batch(&src_dirs, &dest_dir, &MoveOrCopy::Move, false).unwrap();
+        _run_batch(&src_dirs, &dest_dir, MoveOrCopy::Move, false).unwrap();
         (0..src_num).for_each(|i| {
             let src_path = src_dirs[i].path().join(&src_rel_paths[i]);
             let dest_path = dest_dir.path().join(&src_rel_paths[i]);
@@ -511,7 +516,7 @@ pub(crate) mod tests {
         }
 
         let dest_dir = tempdir().unwrap();
-        _run_batch([&src_dir], &dest_dir, &MoveOrCopy::Copy, false).unwrap();
+        _run_batch([&src_dir], &dest_dir, MoveOrCopy::Copy, false).unwrap();
         for path in src_rel_paths {
             let src_path = src_dir.path().join(path);
             let dest_path = dest_dir.path().join(path);

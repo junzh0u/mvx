@@ -30,15 +30,14 @@ fn main() {
     let ctrlc = mvx::ctrlc_flag().unwrap();
     log::trace!("{cli:?}");
 
-    if let Err(e) = mvx::run_batch(
-        &cli.srcs,
-        &cli.dest,
-        &mvx::MoveOrCopy::Copy,
-        cli.force,
-        cli.dry_run,
-        &mp,
-        &ctrlc,
-    ) {
+    let ctx = mvx::Ctx {
+        moc: mvx::MoveOrCopy::Copy,
+        force: cli.force,
+        dry_run: cli.dry_run,
+        mp: &mp,
+        ctrlc: &ctrlc,
+    };
+    if let Err(e) = mvx::run_batch(&cli.srcs, &cli.dest, &ctx) {
         eprintln!("{} {:?}", "✗".red().bold(), e);
         std::process::exit(1);
     }

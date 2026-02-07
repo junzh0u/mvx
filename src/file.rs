@@ -1,36 +1,35 @@
-use crate::{MoveOrCopy, bytes_progress_bar, message_with_arrow};
+use crate::{Ctx, MoveOrCopy, bytes_progress_bar, message_with_arrow};
 use anyhow::{bail, ensure};
 use colored::Colorize;
 use std::{
     fs,
     io::{BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::Ordering,
 };
 
 pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
     src: Src,
     dest: Dest,
-    moc: &MoveOrCopy,
-    force: bool,
-    mp: &indicatif::MultiProgress,
     progress_cb: F,
-    ctrlc: &AtomicBool,
+    ctx: &Ctx,
 ) -> anyhow::Result<String> {
     let src = src.as_ref();
     log::trace!(
-        "move_or_copy('{}', '{}', {moc:?}, force={force})",
+        "move_or_copy('{}', '{}', {:?}, force={})",
         src.display(),
-        dest.as_ref().display()
+        dest.as_ref().display(),
+        ctx.moc,
+        ctx.force,
     );
-    let dest = ensure_dest(src, &dest, force)?;
+    let dest = ensure_dest(src, &dest, ctx.force)?;
 
     let timer = std::time::Instant::now();
     if let Some(dest_parent) = dest.parent() {
         fs::create_dir_all(dest_parent)?;
     }
 
-    let result = match moc {
+    let result = match ctx.moc {
         MoveOrCopy::Move => fs::rename(src, &dest),
         MoveOrCopy::Copy => {
             if dest.exists() {
@@ -39,7 +38,7 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
             reflink::reflink(src, &dest)
         }
     };
-    let fallback = match moc {
+    let fallback = match ctx.moc {
         MoveOrCopy::Move => "copy and delete",
         MoveOrCopy::Copy => "copy",
     };
@@ -48,11 +47,11 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
             return Ok(format!(
                 "{} {}: {}",
                 "→".green().bold(),
-                match moc {
+                match ctx.moc {
                     MoveOrCopy::Move => "Renamed",
                     MoveOrCopy::Copy => "Reflinked",
                 },
-                message_with_arrow(src, dest, moc)
+                message_with_arrow(src, dest, ctx.moc)
             ));
         }
         Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
@@ -69,7 +68,9 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
     }
 
     let file_size = fs::metadata(src)?.len();
-    let pb_bytes = mp.add(bytes_progress_bar(file_size, src, &dest, moc));
+    let pb_bytes = ctx
+        .mp
+        .add(bytes_progress_bar(file_size, src, &dest, ctx.moc));
 
     let mut reader = BufReader::new(fs::File::open(src)?);
     let mut writer = BufWriter::new(fs::File::create(&dest)?);
@@ -77,11 +78,11 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
     let mut buf = vec![0u8; 1024 * 1024];
 
     loop {
-        if ctrlc.load(Ordering::Relaxed) {
+        if ctx.ctrlc.load(Ordering::Relaxed) {
             drop(writer);
             let _ = fs::remove_file(&dest);
             pb_bytes.abandon();
-            log::error!("✗ Cancelled: {}", message_with_arrow(src, &dest, moc));
+            log::error!("✗ Cancelled: {}", message_with_arrow(src, &dest, ctx.moc));
             std::process::exit(130);
         }
         let n = reader.read(&mut buf)?;
@@ -96,7 +97,7 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
     writer.flush()?;
     drop(writer);
 
-    if matches!(moc, MoveOrCopy::Move) {
+    if matches!(ctx.moc, MoveOrCopy::Move) {
         fs::remove_file(src)?;
     }
     pb_bytes.finish_and_clear();
@@ -104,13 +105,13 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
     Ok(format!(
         "{} {} {} in {}: {}",
         "→".green().bold(),
-        match moc {
+        match ctx.moc {
             MoveOrCopy::Move => "Moved",
             MoveOrCopy::Copy => "Copied",
         },
         indicatif::HumanBytes(file_size),
         indicatif::HumanDuration(timer.elapsed()),
-        message_with_arrow(src, dest, moc)
+        message_with_arrow(src, dest, ctx.moc)
     ))
 }
 
@@ -158,6 +159,7 @@ mod tests {
     };
     use serial_test::serial;
     use std::fs;
+    use std::sync::atomic::AtomicBool;
     use tempfile::tempdir;
 
     fn move_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
@@ -165,15 +167,16 @@ mod tests {
         dest: Dest,
         force: bool,
     ) -> anyhow::Result<String> {
-        move_or_copy(
-            src,
-            dest,
-            &MoveOrCopy::Move,
+        let mp = hidden_multi_progress();
+        let ctrlc = AtomicBool::new(false);
+        let ctx = Ctx {
+            moc: MoveOrCopy::Move,
             force,
-            &hidden_multi_progress(),
-            |_| {},
-            &AtomicBool::new(false),
-        )
+            dry_run: false,
+            mp: &mp,
+            ctrlc: &ctrlc,
+        };
+        move_or_copy(src, dest, |_| {}, &ctx)
     }
 
     fn copy_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
@@ -181,15 +184,16 @@ mod tests {
         dest: Dest,
         force: bool,
     ) -> anyhow::Result<String> {
-        move_or_copy(
-            src,
-            dest,
-            &MoveOrCopy::Copy,
+        let mp = hidden_multi_progress();
+        let ctrlc = AtomicBool::new(false);
+        let ctx = Ctx {
+            moc: MoveOrCopy::Copy,
             force,
-            &hidden_multi_progress(),
-            |_| {},
-            &AtomicBool::new(false),
-        )
+            dry_run: false,
+            mp: &mp,
+            ctrlc: &ctrlc,
+        };
+        move_or_copy(src, dest, |_| {}, &ctx)
     }
 
     #[test]

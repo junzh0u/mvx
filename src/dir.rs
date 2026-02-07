@@ -69,6 +69,18 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
             std::process::exit(130);
         }
 
+        if file.is_dir() {
+            fs::create_dir_all(&dest_file)?;
+            if matches!(ctx.moc, MoveOrCopy::Move) {
+                let _ = fs::remove_dir(&file);
+                if let Some(parent) = file.parent() {
+                    remove_empty_ancestors(parent, src);
+                }
+            }
+            continue;
+        }
+
+        let file_parent = file.parent().map(Path::to_path_buf);
         let init_pos = pb_total_bytes.position();
         let msg = crate::file::move_or_copy(
             file,
@@ -79,11 +91,16 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
             ctx,
         )?;
         msgs.push(msg);
+        if matches!(ctx.moc, MoveOrCopy::Move)
+            && let Some(ref parent) = file_parent
+        {
+            remove_empty_ancestors(parent, src);
+        }
     }
 
     match ctx.moc {
-        MoveOrCopy::Move => remove_empty_dir(src)?,
-        MoveOrCopy::Copy => (),
+        MoveOrCopy::Move if src.exists() => remove_empty_dir(src)?,
+        _ => (),
     }
     pb_total_bytes.finish_and_clear();
 
@@ -98,6 +115,23 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
         indicatif::HumanDuration(timer.elapsed()),
         message_with_arrow(src, dest, ctx.moc),
     ))
+}
+
+fn remove_empty_ancestors(from: &Path, up_to: &Path) {
+    let mut dir = from.to_path_buf();
+    loop {
+        if fs::remove_dir(&dir).is_err() {
+            break;
+        }
+        log::debug!("Removed empty directory: '{}'", dir.display());
+        if dir == up_to {
+            break;
+        }
+        dir = match dir.parent() {
+            Some(p) => p.to_path_buf(),
+            None => break,
+        };
+    }
 }
 
 fn remove_empty_dir<P: AsRef<Path>>(dir: P) -> std::io::Result<()> {
@@ -117,7 +151,12 @@ fn collect_files_in_dir<P: AsRef<Path>>(dir: P) -> std::io::Result<Vec<PathBuf>>
         .map(|entry| entry.path())
         .flat_map(|path| {
             if path.is_dir() {
-                collect_files_in_dir(&path).unwrap_or_default()
+                let entries = collect_files_in_dir(&path).unwrap_or_default();
+                if entries.is_empty() {
+                    vec![path] // empty directory — include it
+                } else {
+                    entries
+                }
             } else if path.is_file() {
                 vec![path]
             } else {
@@ -131,6 +170,7 @@ fn get_total_size_of_files<P: AsRef<Path>>(files: &[P]) -> u64 {
     files
         .iter()
         .filter_map(|f| fs::metadata(f).ok())
+        .filter(std::fs::Metadata::is_file)
         .map(|m| m.len())
         .sum()
 }

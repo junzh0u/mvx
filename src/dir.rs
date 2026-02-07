@@ -4,7 +4,7 @@ use colored::Colorize;
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::mpsc::Receiver,
+    sync::atomic::{AtomicBool, Ordering},
 };
 
 pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
@@ -13,7 +13,7 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
     moc: &MoveOrCopy,
     force: bool,
     mp: &indicatif::MultiProgress,
-    ctrlc: &Receiver<()>,
+    ctrlc: &AtomicBool,
 ) -> anyhow::Result<String> {
     let src = src.as_ref();
     let dest = dest.as_ref();
@@ -52,7 +52,7 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
     for file in files {
         let rel_path = file.strip_prefix(src)?;
         let dest_file = dest.join(rel_path);
-        if ctrlc.try_recv().is_ok() {
+        if ctrlc.load(Ordering::Relaxed) {
             for msg in &msgs {
                 log::info!("{msg}");
             }
@@ -73,9 +73,10 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>>(
             moc,
             force,
             mp,
-            |transit: fs_extra::file::TransitProcess| {
-                pb_total_bytes.set_position(init_pos + transit.copied_bytes);
+            |copied_bytes: u64| {
+                pb_total_bytes.set_position(init_pos + copied_bytes);
             },
+            ctrlc,
         )?;
         msgs.push(msg);
     }
@@ -138,8 +139,7 @@ fn get_total_size_of_files<P: AsRef<Path>>(files: &[P]) -> u64 {
 mod tests {
     use super::*;
     use crate::tests::{
-        assert_file_copied, assert_file_moved, create_temp_file, hidden_multi_progress,
-        noop_receiver,
+        assert_file_copied, assert_file_moved, create_temp_file, hidden_multi_progress, noop_ctrlc,
     };
     use std::collections::HashSet;
     use tempfile::tempdir;
@@ -186,7 +186,7 @@ mod tests {
             moc,
             force,
             &hidden_multi_progress(),
-            &noop_receiver(),
+            &noop_ctrlc(),
         )
     }
 

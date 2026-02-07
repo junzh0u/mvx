@@ -3,8 +3,8 @@ use colored::Colorize;
 use log::LevelFilter;
 use std::io::Write;
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, channel};
 
 mod dir;
 mod file;
@@ -96,7 +96,7 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
     force: bool,
     dry_run: bool,
     mp: &indicatif::MultiProgress,
-    ctrlc: &Receiver<()>,
+    ctrlc: &AtomicBool,
 ) -> anyhow::Result<String> {
     let srcs = srcs
         .as_ref()
@@ -151,7 +151,7 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
 
     let spinner = new_spinner(mp, srcs.len() as u64);
     for src in srcs {
-        if ctrlc.try_recv().is_ok() {
+        if ctrlc.load(Ordering::Relaxed) {
             log::error!("✗ Cancelled: {}", message_with_arrow(src, dest, moc));
             std::process::exit(130);
         }
@@ -160,7 +160,7 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
         spinner.inc(1);
 
         let msg = if src.is_file() {
-            file::move_or_copy(src, dest, moc, force, mp, |_| {})?
+            file::move_or_copy(src, dest, moc, force, mp, |_| {}, ctrlc)?
         } else {
             dir::merge_or_copy(src, dest, moc, force, mp, ctrlc)?
         };
@@ -173,8 +173,9 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
 /// # Errors
 ///
 /// Will return `Err` if can not register Ctrl-C handler.
-pub fn ctrlc_channel() -> anyhow::Result<Receiver<()>> {
-    let (tx, rx) = channel();
+pub fn ctrlc_flag() -> anyhow::Result<Arc<AtomicBool>> {
+    let flag = Arc::new(AtomicBool::new(false));
+    let flag_clone = Arc::clone(&flag);
     let already_pressed = AtomicBool::new(false);
     ctrlc::set_handler(move || {
         if already_pressed.swap(true, Ordering::Relaxed) {
@@ -182,10 +183,10 @@ pub fn ctrlc_channel() -> anyhow::Result<Receiver<()>> {
             std::process::exit(130);
         }
         log::warn!("✗ Ctrl-C detected, cancelling... (press again to force exit)");
-        let _ = tx.send(());
+        flag_clone.store(true, Ordering::Relaxed);
     })?;
 
-    Ok(rx)
+    Ok(flag)
 }
 
 fn new_spinner(mp: &indicatif::MultiProgress, len: u64) -> indicatif::ProgressBar {
@@ -240,10 +241,8 @@ pub(crate) mod tests {
     use std::path::{Path, PathBuf};
     use tempfile::tempdir;
 
-    pub(crate) fn noop_receiver() -> Receiver<()> {
-        let (tx, rx) = channel();
-        drop(tx);
-        rx
+    pub(crate) fn noop_ctrlc() -> Arc<AtomicBool> {
+        Arc::new(AtomicBool::new(false))
     }
 
     pub(crate) fn hidden_multi_progress() -> indicatif::MultiProgress {
@@ -347,7 +346,7 @@ pub(crate) mod tests {
             force,
             false,
             &hidden_multi_progress(),
-            &noop_receiver(),
+            &noop_ctrlc(),
         )
     }
 

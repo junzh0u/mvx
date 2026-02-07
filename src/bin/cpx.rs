@@ -27,7 +27,7 @@ pub struct Cli {
 fn main() {
     let cli = Cli::parse();
     let mp = mvx::init_logging(cli.verbosity.log_level_filter());
-    let ctrlc = mvx::ctrlc_channel().unwrap();
+    let ctrlc = mvx::ctrlc_flag().unwrap();
     log::trace!("{cli:?}");
 
     if let Err(e) = mvx::run_batch(

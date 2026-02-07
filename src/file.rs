@@ -3,20 +3,19 @@ use anyhow::{bail, ensure};
 use colored::Colorize;
 use std::{
     fs,
+    io::{BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
+    sync::atomic::{AtomicBool, Ordering},
 };
 
-pub(crate) fn move_or_copy<
-    Src: AsRef<Path>,
-    Dest: AsRef<Path>,
-    F: Fn(fs_extra::file::TransitProcess),
->(
+pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
     src: Src,
     dest: Dest,
     moc: &MoveOrCopy,
     force: bool,
     mp: &indicatif::MultiProgress,
     progress_cb: F,
+    ctrlc: &AtomicBool,
 ) -> anyhow::Result<String> {
     let src = src.as_ref();
     log::trace!(
@@ -70,20 +69,36 @@ pub(crate) fn move_or_copy<
     }
 
     let file_size = fs::metadata(src)?.len();
-    let copy_options = fs_extra::file::CopyOptions::new().overwrite(force);
     let pb_bytes = mp.add(bytes_progress_bar(file_size, src, &dest, moc));
-    let progress_handler = |transit: fs_extra::file::TransitProcess| {
-        pb_bytes.set_position(transit.copied_bytes);
-        progress_cb(transit);
-    };
-    match moc {
-        MoveOrCopy::Move => {
-            fs_extra::file::move_file_with_progress(src, &dest, &copy_options, progress_handler)
+
+    let mut reader = BufReader::new(fs::File::open(src)?);
+    let mut writer = BufWriter::new(fs::File::create(&dest)?);
+    let mut copied = 0u64;
+    let mut buf = vec![0u8; 1024 * 1024];
+
+    loop {
+        if ctrlc.load(Ordering::Relaxed) {
+            drop(writer);
+            let _ = fs::remove_file(&dest);
+            pb_bytes.abandon();
+            log::error!("✗ Cancelled: {}", message_with_arrow(src, &dest, moc));
+            std::process::exit(130);
         }
-        MoveOrCopy::Copy => {
-            fs_extra::file::copy_with_progress(src, &dest, &copy_options, progress_handler)
+        let n = reader.read(&mut buf)?;
+        if n == 0 {
+            break;
         }
-    }?;
+        writer.write_all(&buf[..n])?;
+        copied += n as u64;
+        pb_bytes.set_position(copied);
+        progress_cb(copied);
+    }
+    writer.flush()?;
+    drop(writer);
+
+    if matches!(moc, MoveOrCopy::Move) {
+        fs::remove_file(src)?;
+    }
     pb_bytes.finish_and_clear();
 
     Ok(format!(
@@ -157,6 +172,7 @@ mod tests {
             force,
             &hidden_multi_progress(),
             |_| {},
+            &AtomicBool::new(false),
         )
     }
 
@@ -172,6 +188,7 @@ mod tests {
             force,
             &hidden_multi_progress(),
             |_| {},
+            &AtomicBool::new(false),
         )
     }
 

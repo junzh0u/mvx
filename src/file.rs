@@ -5,7 +5,6 @@ use std::{
     fs,
     io::{BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
-    sync::atomic::Ordering,
 };
 
 pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
@@ -72,30 +71,7 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
         .mp
         .add(bytes_progress_bar(file_size, src, &dest, ctx.moc));
 
-    let mut reader = BufReader::new(fs::File::open(src)?);
-    let mut writer = BufWriter::new(fs::File::create(&dest)?);
-    let mut copied = 0u64;
-    let mut buf = vec![0u8; 1024 * 1024];
-
-    loop {
-        if ctx.ctrlc.load(Ordering::Relaxed) {
-            drop(writer);
-            let _ = fs::remove_file(&dest);
-            pb_bytes.abandon();
-            log::error!("✗ Cancelled: {}", message_with_arrow(src, &dest, ctx.moc));
-            std::process::exit(130);
-        }
-        let n = reader.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        writer.write_all(&buf[..n])?;
-        copied += n as u64;
-        pb_bytes.set_position(copied);
-        progress_cb(copied);
-    }
-    writer.flush()?;
-    drop(writer);
+    buffered_copy(src, &dest, &pb_bytes, &progress_cb)?;
 
     if matches!(ctx.moc, MoveOrCopy::Move) {
         fs::remove_file(src)?;
@@ -113,6 +89,30 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
         indicatif::HumanDuration(timer.elapsed()),
         message_with_arrow(src, dest, ctx.moc)
     ))
+}
+
+fn buffered_copy<F: Fn(u64)>(
+    src: &Path,
+    dest: &Path,
+    pb: &indicatif::ProgressBar,
+    progress_cb: F,
+) -> anyhow::Result<()> {
+    let mut reader = BufReader::new(fs::File::open(src)?);
+    let mut writer = BufWriter::new(fs::File::create(dest)?);
+    let mut buf = vec![0u8; 1024 * 1024];
+    let mut copied = 0u64;
+    loop {
+        let n = reader.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        writer.write_all(&buf[..n])?;
+        copied += n as u64;
+        pb.set_position(copied);
+        progress_cb(copied);
+    }
+    writer.flush()?;
+    Ok(())
 }
 
 fn ensure_dest<Src: AsRef<Path>, Dest: AsRef<Path>>(

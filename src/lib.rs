@@ -186,7 +186,7 @@ pub fn ctrlc_flag() -> anyhow::Result<Arc<AtomicBool>> {
             log::warn!("✗ Ctrl-C again, force exiting...");
             std::process::exit(130);
         }
-        log::warn!("✗ Ctrl-C detected, cancelling... (press again to force exit)");
+        log::warn!("✗ Ctrl-C detected, finishing current file... (press again to force exit)");
         flag_clone.store(true, Ordering::Relaxed);
     })?;
 

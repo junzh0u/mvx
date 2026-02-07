@@ -502,6 +502,63 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn dry_run_does_not_modify_files() {
+        let work_dir = tempdir().unwrap();
+        let src_content = "This is a test file";
+        let src_path = create_temp_file(work_dir.path(), "a", src_content);
+        let dest_path = work_dir.path().join("b");
+
+        let mp = hidden_multi_progress();
+        let ctrlc = noop_ctrlc();
+        let ctx = Ctx {
+            moc: MoveOrCopy::Move,
+            force: false,
+            dry_run: true,
+            mp: &mp,
+            ctrlc: &ctrlc,
+        };
+        run_batch([&src_path], &dest_path, &ctx).unwrap();
+
+        assert!(
+            src_path.exists(),
+            "Source should still exist in dry-run mode"
+        );
+        assert!(
+            !dest_path.exists(),
+            "Dest should not be created in dry-run mode"
+        );
+    }
+
+    #[test]
+    fn fails_with_nonexistent_source() {
+        let work_dir = tempdir().unwrap();
+        let src_path = work_dir.path().join("nonexistent");
+        let dest_path = work_dir.path().join("dest");
+
+        assert_error_with_msg(
+            _run_batch([&src_path], &dest_path, MoveOrCopy::Move, false),
+            "neither a file nor directory",
+        );
+    }
+
+    #[test]
+    fn copy_multiple_files_to_directory() {
+        let work_dir = tempdir().unwrap();
+        let src_paths = vec![
+            create_temp_file(work_dir.path(), "a", "content_a"),
+            create_temp_file(work_dir.path(), "b", "content_b"),
+        ];
+        let dest_dir = work_dir.path().join("dest");
+        fs::create_dir_all(&dest_dir).unwrap();
+
+        _run_batch(&src_paths, &dest_dir, MoveOrCopy::Copy, false).unwrap();
+        for src_path in &src_paths {
+            let dest_path = dest_dir.join(src_path.file_name().unwrap());
+            assert_file_copied(src_path, &dest_path);
+        }
+    }
+
+    #[test]
     fn copy_directory_into_empty_dest() {
         let src_dir = tempdir().unwrap();
         let src_rel_paths = [

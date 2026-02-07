@@ -132,7 +132,8 @@ fn collect_total_size(dir: &Path) -> u64 {
 mod tests {
     use super::*;
     use crate::tests::{
-        assert_file_copied, assert_file_moved, create_temp_file, hidden_multi_progress, noop_ctrlc,
+        assert_error_with_msg, assert_file_copied, assert_file_moved, create_temp_file,
+        hidden_multi_progress, noop_ctrlc,
     };
     use tempfile::tempdir;
 
@@ -152,6 +153,90 @@ mod tests {
             ctrlc: &ctrlc,
         };
         merge_or_copy(src, dest, &ctx)
+    }
+
+    #[test]
+    fn fails_when_source_does_not_exist() {
+        let src_dir = tempdir().unwrap();
+        let nonexistent = src_dir.path().join("nonexistent");
+        let dest_dir = tempdir().unwrap();
+
+        assert_error_with_msg(
+            _merge_or_copy(&nonexistent, &dest_dir, MoveOrCopy::Move, false),
+            "does not exist",
+        );
+    }
+
+    #[test]
+    fn fails_when_source_is_not_a_directory() {
+        let work_dir = tempdir().unwrap();
+        let src_file = create_temp_file(work_dir.path(), "file", "content");
+        let dest_dir = tempdir().unwrap();
+
+        assert_error_with_msg(
+            _merge_or_copy(&src_file, &dest_dir, MoveOrCopy::Move, false),
+            "not a directory",
+        );
+    }
+
+    #[test]
+    fn fails_when_dest_exists_but_is_not_a_directory() {
+        let src_dir = tempdir().unwrap();
+        create_temp_file(src_dir.path(), "file", "content");
+
+        let work_dir = tempdir().unwrap();
+        let dest_file = create_temp_file(work_dir.path(), "dest", "existing");
+
+        assert_error_with_msg(
+            _merge_or_copy(&src_dir, &dest_file, MoveOrCopy::Move, false),
+            "not a directory",
+        );
+    }
+
+    #[test]
+    fn creates_dest_when_it_does_not_exist() {
+        let src_dir = tempdir().unwrap();
+        create_temp_file(src_dir.path(), "file1", "content");
+
+        let work_dir = tempdir().unwrap();
+        let dest_dir = work_dir.path().join("new_dest");
+        assert!(!dest_dir.exists());
+
+        _merge_or_copy(&src_dir, &dest_dir, MoveOrCopy::Move, false).unwrap();
+
+        assert!(dest_dir.join("file1").exists());
+    }
+
+    #[test]
+    fn copy_directory_fails_without_force_when_files_overlap() {
+        let src_dir = tempdir().unwrap();
+        create_temp_file(src_dir.path(), "file1", "From source");
+
+        let dest_dir = tempdir().unwrap();
+        create_temp_file(dest_dir.path(), "file1", "From dest");
+
+        assert_error_with_msg(
+            _merge_or_copy(&src_dir, &dest_dir, MoveOrCopy::Copy, false),
+            "already exists",
+        );
+    }
+
+    #[test]
+    fn move_removes_source_directory() {
+        let src_dir = tempdir().unwrap();
+        create_temp_file(src_dir.path(), "file1", "content");
+        create_temp_file(src_dir.path(), "subdir/file2", "content2");
+        let src_path = src_dir.path().to_path_buf();
+
+        let dest_dir = tempdir().unwrap();
+        _merge_or_copy(&src_path, &dest_dir, MoveOrCopy::Move, false).unwrap();
+
+        assert!(
+            !src_path.exists(),
+            "Source directory should be removed after move"
+        );
+        assert!(dest_dir.path().join("file1").exists());
+        assert!(dest_dir.path().join("subdir/file2").exists());
     }
 
     #[test]

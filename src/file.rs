@@ -354,6 +354,39 @@ mod tests {
     }
 
     #[test]
+    fn move_file_into_existing_directory() {
+        let work_dir = tempdir().unwrap();
+        let src_content = "This is a test file";
+        let src_path = create_temp_file(work_dir.path(), "a", src_content);
+        let dest_dir = work_dir.path().join("dest_dir");
+        fs::create_dir_all(&dest_dir).unwrap();
+
+        move_file(&src_path, &dest_dir, false).unwrap();
+        assert_file_moved(&src_path, dest_dir.join("a"), src_content);
+    }
+
+    #[test]
+    fn copy_file_into_existing_directory() {
+        let work_dir = tempdir().unwrap();
+        let src_path = create_temp_file(work_dir.path(), "a", "content");
+        let dest_dir = work_dir.path().join("dest_dir");
+        fs::create_dir_all(&dest_dir).unwrap();
+
+        copy_file(&src_path, &dest_dir, false).unwrap();
+        assert_file_copied(&src_path, dest_dir.join("a"));
+    }
+
+    #[test]
+    fn move_fails_when_source_is_directory() {
+        let src_dir = tempdir().unwrap();
+
+        assert_error_with_msg(
+            move_file(src_dir.path(), "/dest/does/not/matter", false),
+            "not a file",
+        );
+    }
+
+    #[test]
     fn move_file_fails_when_cant_create_intermediate_directories() {
         let work_dir = tempdir().unwrap();
         let src_content = "This is a test file";

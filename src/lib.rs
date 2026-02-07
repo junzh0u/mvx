@@ -3,6 +3,7 @@ use colored::Colorize;
 use log::LevelFilter;
 use std::io::Write;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, channel};
 
 mod dir;
@@ -174,8 +175,13 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
 /// Will return `Err` if can not register Ctrl-C handler.
 pub fn ctrlc_channel() -> anyhow::Result<Receiver<()>> {
     let (tx, rx) = channel();
+    let already_pressed = AtomicBool::new(false);
     ctrlc::set_handler(move || {
-        log::warn!("✗ Ctrl-C detected, cancelling...");
+        if already_pressed.swap(true, Ordering::Relaxed) {
+            log::warn!("✗ Ctrl-C again, force exiting...");
+            std::process::exit(130);
+        }
+        log::warn!("✗ Ctrl-C detected, cancelling... (press again to force exit)");
         let _ = tx.send(());
     })?;
 

@@ -22,6 +22,7 @@ cpx [OPTIONS] <SOURCES>... <DEST>
 | Option | Description |
 |--------|-------------|
 | `-f, --force` | Overwrite existing files |
+| `-n, --dry-run` | Show what would be done without actually doing it |
 | `-q, --quiet` | Suppress progress bars and info messages |
 | `-v, --verbose` | Show detailed output |
 | `-h, --help` | Print help |
@@ -74,6 +75,14 @@ Cross-device operations display progress bars with transfer speed and ETA:
 
 Use `-q` to suppress progress output.
 
+### Fast Path Optimization
+
+Same-device moves use `rename` (instant). Same-filesystem copies use `reflink` (copy-on-write clone on APFS/Btrfs). The buffered copy fallback with progress bars only kicks in when these fast paths aren't available.
+
+### Ctrl+C Handling
+
+Press Ctrl+C once to finish the current file and stop. Press again to force exit immediately.
+
 ## Examples
 
 ```bash
@@ -101,6 +110,9 @@ cpx -q large_file.iso /mnt/usb/
 | Destination doesn't exist | Fails (for directories) | Creates automatically |
 | File exists at destination | Overwrites silently | Fails (use `-f` to overwrite) |
 | Cross-device operations | No progress indication | Shows progress bar |
+| Same-device moves | `rename` | `rename` (same) |
+| Same-filesystem copies | Full copy | `reflink` (instant clone) |
+| Ctrl+C | Stops immediately | Finishes current file, then stops |
 
 ## License
 

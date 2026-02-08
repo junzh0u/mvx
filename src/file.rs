@@ -3,7 +3,7 @@ use anyhow::{bail, ensure};
 use colored::Colorize;
 use std::{
     fs,
-    io::{BufReader, BufWriter, Read, Write},
+    io::{Read, Write},
     path::{Path, PathBuf},
 };
 
@@ -97,8 +97,8 @@ fn buffered_copy<F: Fn(u64)>(
     pb: &indicatif::ProgressBar,
     progress_cb: F,
 ) -> anyhow::Result<()> {
-    let mut reader = BufReader::new(fs::File::open(src)?);
-    let mut writer = BufWriter::new(fs::File::create(dest)?);
+    let mut reader = fs::File::open(src)?;
+    let mut writer = fs::File::create(dest)?;
     let mut buf = vec![0u8; 1024 * 1024];
     let mut copied = 0u64;
     loop {
@@ -111,7 +111,6 @@ fn buffered_copy<F: Fn(u64)>(
         pb.set_position(copied);
         progress_cb(copied);
     }
-    writer.flush()?;
     Ok(())
 }
 

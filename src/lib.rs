@@ -184,7 +184,9 @@ pub fn ctrlc_flag() -> anyhow::Result<Arc<AtomicBool>> {
     ctrlc::set_handler(move || {
         if already_pressed.swap(true, Ordering::Relaxed) {
             log::warn!("✗ Ctrl-C again, force exiting...");
-            std::process::exit(130);
+            // Use _exit() to terminate immediately without running atexit handlers
+            // or destructors, which can deadlock (e.g. indicatif's render thread).
+            unsafe { libc::_exit(130) };
         }
         log::warn!("✗ Ctrl-C detected, finishing current file... (press again to force exit)");
         flag_clone.store(true, Ordering::Relaxed);

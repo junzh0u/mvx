@@ -1,4 +1,4 @@
-use crate::{Ctx, MoveOrCopy, bytes_progress_bar, message_with_arrow};
+use crate::{Ctx, MoveOrCopy, item_progress_bar, message_with_arrow};
 use anyhow::{bail, ensure};
 use colored::Colorize;
 use std::{
@@ -69,7 +69,7 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
     let file_size = fs::metadata(src)?.len();
     let pb_bytes = ctx
         .mp
-        .add(bytes_progress_bar(file_size, src, &dest, ctx.moc));
+        .add(item_progress_bar(file_size, src, &dest, ctx.moc));
 
     buffered_copy(src, &dest, &pb_bytes, &progress_cb)?;
 

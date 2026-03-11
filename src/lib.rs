@@ -153,23 +153,55 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
         return Ok(String::new());
     }
 
-    let spinner = new_spinner(ctx.mp, srcs.len() as u64);
-    for src in srcs {
+    let n = srcs.len();
+    let sizes: Vec<u64> = srcs.iter().map(|s| source_size(s)).collect();
+    let batch_pb = ctx
+        .mp
+        .add(batch_progress_bar(sizes.iter().sum(), n, ctx.moc));
+
+    let mut cumulative: u64 = 0;
+    for (i, src) in srcs.iter().enumerate() {
         if ctx.ctrlc.load(Ordering::Relaxed) {
             log::error!("✗ Cancelled: {}", message_with_arrow(src, dest, ctx.moc));
             std::process::exit(130);
         }
 
-        spinner.set_message(src.display().to_string());
-        spinner.inc(1);
+        let up_next = srcs.get(i + 1).map_or(String::new(), |s| {
+            format!(" (Up Next: {})", file_name_lossy(s))
+        });
+        batch_pb.set_message(format!(
+            "[{}/{}] {}{up_next}",
+            i + 1,
+            n,
+            file_name_lossy(src)
+        ));
 
+        let base = cumulative;
         let msg = if src.is_file() {
-            file::move_or_copy(src, dest, |_| {}, ctx)?
+            file::move_or_copy(
+                src,
+                dest,
+                |bytes| {
+                    batch_pb.set_position(base + bytes);
+                },
+                ctx,
+            )?
         } else {
-            dir::merge_or_copy(src, dest, ctx)?
+            dir::merge_or_copy(
+                src,
+                dest,
+                |dir_bytes| {
+                    batch_pb.set_position(base + dir_bytes);
+                },
+                ctx,
+            )?
         };
+
+        cumulative += sizes[i];
+        batch_pb.set_position(cumulative);
         ctx.mp.println(msg)?;
     }
+    batch_pb.finish_and_clear();
 
     Ok(String::new())
 }
@@ -195,36 +227,50 @@ pub fn ctrlc_flag() -> anyhow::Result<Arc<AtomicBool>> {
     Ok(flag)
 }
 
-fn new_spinner(mp: &indicatif::MultiProgress, len: u64) -> indicatif::ProgressBar {
-    let style = indicatif::ProgressStyle::with_template("{spinner:.blue} {pos:>4}/{len:<4} {msg}")
+fn bytes_progress_bar(size: u64, color: &str, moc: MoveOrCopy) -> indicatif::ProgressBar {
+    let template = format!(
+        "{{total_bytes:>11}} [{{bar:40.{color}/white}}] {{bytes:<11}} ({{bytes_per_sec:>13}}, ETA: {{eta_precise}} ) {{prefix}} {{msg}}"
+    );
+    let style = indicatif::ProgressStyle::with_template(&template)
         .unwrap()
-        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
-    let pb = mp.add(indicatif::ProgressBar::new(len)).with_style(style);
-    if len > 1 {
-        pb.enable_steady_tick(std::time::Duration::from_millis(100));
-    } else {
+        .progress_chars(moc.progress_chars());
+    indicatif::ProgressBar::new(size).with_style(style)
+}
+
+fn batch_progress_bar(total_size: u64, count: usize, moc: MoveOrCopy) -> indicatif::ProgressBar {
+    let pb = bytes_progress_bar(total_size, "blue", moc);
+    if count <= 1 {
         pb.set_draw_target(indicatif::ProgressDrawTarget::hidden());
     }
     pb
 }
 
-fn bytes_progress_bar<Src: AsRef<Path>, Dest: AsRef<Path>>(
+fn item_progress_bar<Src: AsRef<Path>, Dest: AsRef<Path>>(
     size: u64,
     src: Src,
     dest: Dest,
     moc: MoveOrCopy,
 ) -> indicatif::ProgressBar {
-    let template = if src.as_ref().is_dir() {
-        "{total_bytes:>11} [{bar:40.cyan/white}] {bytes:<11} ({bytes_per_sec:>13}, ETA: {eta_precise} ) {msg}"
+    let color = if src.as_ref().is_dir() {
+        "cyan"
     } else {
-        "{total_bytes:>11} [{bar:40.green/white}] {bytes:<11} ({bytes_per_sec:>13}, ETA: {eta_precise} ) {msg}"
+        "green"
     };
-    let style = indicatif::ProgressStyle::with_template(template)
-        .unwrap()
-        .progress_chars(moc.progress_chars());
-    indicatif::ProgressBar::new(size)
-        .with_style(style)
-        .with_message(message_with_arrow(src, dest, moc))
+    bytes_progress_bar(size, color, moc).with_message(message_with_arrow(src, dest, moc))
+}
+
+fn source_size(src: &Path) -> u64 {
+    if src.is_file() {
+        std::fs::metadata(src).map(|m| m.len()).unwrap_or(0)
+    } else {
+        dir::collect_total_size(src)
+    }
+}
+
+fn file_name_lossy(path: &Path) -> std::borrow::Cow<'_, str> {
+    path.file_name()
+        .unwrap_or(path.as_os_str())
+        .to_string_lossy()
 }
 
 fn message_with_arrow<Src: AsRef<Path>, Dest: AsRef<Path>>(

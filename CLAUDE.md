@@ -22,7 +22,8 @@ cargo clippy -- -W clippy::pedantic -D warnings  # Lint with strict settings
 cargo install --path .         # Install mvx and cpx binaries
 
 # All checks (equivalent to CI)
-make all                       # Runs fmt, clippy, test
+just check                     # Runs fmt, clippy, test
+just fix                       # Auto-fix formatting and clippy warnings
 ```
 
 ## Architecture

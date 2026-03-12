@@ -155,9 +155,12 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
 
     let n = srcs.len();
     let sizes: Vec<u64> = srcs.iter().map(|s| source_size(s)).collect();
-    let batch_pb = ctx
-        .mp
-        .add(batch_progress_bar(sizes.iter().sum(), n, ctx.moc));
+    let batch_pb = if n > 1 {
+        ctx.mp
+            .add(bytes_progress_bar(sizes.iter().sum(), "blue", ctx.moc))
+    } else {
+        indicatif::ProgressBar::hidden()
+    };
 
     let mut cumulative: u64 = 0;
     for (i, src) in srcs.iter().enumerate() {
@@ -235,14 +238,6 @@ fn bytes_progress_bar(size: u64, color: &str, moc: MoveOrCopy) -> indicatif::Pro
         .unwrap()
         .progress_chars(moc.progress_chars());
     indicatif::ProgressBar::new(size).with_style(style)
-}
-
-fn batch_progress_bar(total_size: u64, count: usize, moc: MoveOrCopy) -> indicatif::ProgressBar {
-    let pb = bytes_progress_bar(total_size, "blue", moc);
-    if count <= 1 {
-        pb.set_draw_target(indicatif::ProgressDrawTarget::hidden());
-    }
-    pb
 }
 
 fn item_progress_bar<Src: AsRef<Path>, Dest: AsRef<Path>>(

@@ -1,4 +1,4 @@
-use crate::{Ctx, MoveOrCopy, item_progress_bar, message_with_arrow};
+use crate::{Ctx, MoveOrCopy, human_speed, item_progress_bar, message_with_arrow};
 use anyhow::{bail, ensure};
 use colored::Colorize;
 use std::{
@@ -79,15 +79,20 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
     pb_bytes.finish_and_clear();
 
     Ok(format!(
-        "{} {} {} in {}: {}",
+        "{} {}",
         "→".green().bold(),
-        match ctx.moc {
-            MoveOrCopy::Move => "Moved",
-            MoveOrCopy::Copy => "Copied",
-        },
-        indicatif::HumanBytes(file_size),
-        indicatif::HumanDuration(timer.elapsed()),
-        message_with_arrow(src, dest, ctx.moc)
+        format!(
+            "{} {} in {}{}: {}",
+            match ctx.moc {
+                MoveOrCopy::Move => "Moved",
+                MoveOrCopy::Copy => "Copied",
+            },
+            indicatif::HumanBytes(file_size),
+            indicatif::HumanDuration(timer.elapsed()),
+            human_speed(file_size, timer.elapsed()),
+            message_with_arrow(src, dest, ctx.moc)
+        )
+        .dimmed()
     ))
 }
 

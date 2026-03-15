@@ -1,4 +1,4 @@
-use crate::{Ctx, MoveOrCopy, item_progress_bar, message_with_arrow};
+use crate::{Ctx, MoveOrCopy, human_speed, item_progress_bar, message_with_arrow};
 use anyhow::ensure;
 use colored::Colorize;
 use std::{fs, path::Path, sync::atomic::Ordering};
@@ -50,15 +50,20 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
     pb.finish_and_clear();
 
     Ok(format!(
-        "{} {} {} in {}: {}",
+        "{} {}",
         "↣".green().bold(),
-        match ctx.moc {
-            MoveOrCopy::Move => "Merged",
-            MoveOrCopy::Copy => "Copied",
-        },
-        indicatif::HumanBytes(total_size),
-        indicatif::HumanDuration(timer.elapsed()),
-        message_with_arrow(src, dest, ctx.moc),
+        format!(
+            "{} {} in {}{}: {}",
+            match ctx.moc {
+                MoveOrCopy::Move => "Merged",
+                MoveOrCopy::Copy => "Copied",
+            },
+            indicatif::HumanBytes(total_size),
+            indicatif::HumanDuration(timer.elapsed()),
+            human_speed(total_size, timer.elapsed()),
+            message_with_arrow(src, dest, ctx.moc),
+        )
+        .dimmed()
     ))
 }
 

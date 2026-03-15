@@ -1,4 +1,4 @@
-use crate::{Ctx, MoveOrCopy, human_speed, item_progress_bar, message_with_arrow};
+use crate::{Ctx, MoveOrCopy, done_arrow, human_speed, item_progress_bar, message_with_arrow};
 use anyhow::{bail, ensure};
 use colored::Colorize;
 use std::{
@@ -45,7 +45,7 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
         Ok(()) => {
             return Ok(format!(
                 "{} {}: {}",
-                "→".green().bold(),
+                done_arrow(false).green().bold(),
                 match ctx.moc {
                     MoveOrCopy::Move => "Renamed",
                     MoveOrCopy::Copy => "Reflinked",
@@ -80,7 +80,7 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
 
     Ok(format!(
         "{} {}",
-        "→".green().bold(),
+        done_arrow(false).green().bold(),
         format!(
             "{} {} in {}{}: {}",
             ctx.moc.action_done(false),

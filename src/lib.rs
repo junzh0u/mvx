@@ -168,10 +168,11 @@ fn print_batch_summary(
     ctx: &Ctx,
 ) -> anyhow::Result<()> {
     let total: u64 = sizes.iter().sum();
+    let has_dir = srcs.iter().any(|s| s.is_dir());
     ctx.mp.println(format!(
         "{} {} {} in {}{}",
-        ctx.moc.arrow().green().bold(),
-        ctx.moc.action_done(srcs[0].is_dir()),
+        done_arrow(has_dir).green().bold(),
+        ctx.moc.action_done(has_dir),
         indicatif::HumanBytes(total),
         indicatif::HumanDuration(elapsed),
         human_speed(total, elapsed),
@@ -227,7 +228,10 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
     let mut cumulative: u64 = 0;
     for (i, src) in srcs.iter().enumerate() {
         if ctx.ctrlc.load(Ordering::Relaxed) {
-            log::error!("✗ Cancelled: {}", message_with_arrow(src, dest, ctx.moc));
+            log::error!(
+                "{FAIL_MARK} Cancelled: {}",
+                message_with_arrow(src, dest, ctx.moc)
+            );
             std::process::exit(130);
         }
 
@@ -265,12 +269,14 @@ pub fn ctrlc_flag() -> anyhow::Result<Arc<AtomicBool>> {
     let already_pressed = AtomicBool::new(false);
     ctrlc::set_handler(move || {
         if already_pressed.swap(true, Ordering::Relaxed) {
-            log::warn!("✗ Ctrl-C again, force exiting...");
+            log::warn!("{FAIL_MARK} Ctrl-C again, force exiting...");
             // Use _exit() to terminate immediately without running atexit handlers
             // or destructors, which can deadlock (e.g. indicatif's render thread).
             unsafe { libc::_exit(130) };
         }
-        log::warn!("✗ Ctrl-C detected, finishing current file... (press again to force exit)");
+        log::warn!(
+            "{FAIL_MARK} Ctrl-C detected, finishing current file... (press again to force exit)"
+        );
         flag_clone.store(true, Ordering::Relaxed);
     })?;
 
@@ -307,6 +313,12 @@ fn source_size(src: &Path) -> u64 {
     } else {
         dir::collect_total_size(src)
     }
+}
+
+pub const FAIL_MARK: &str = "✗";
+
+pub(crate) const fn done_arrow(is_dir: bool) -> &'static str {
+    if is_dir { "↣" } else { "→" }
 }
 
 fn file_name_lossy(path: &Path) -> std::borrow::Cow<'_, str> {

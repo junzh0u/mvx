@@ -1,4 +1,6 @@
-use crate::{Ctx, MoveOrCopy, human_speed, item_progress_bar, message_with_arrow};
+use crate::{
+    Ctx, FAIL_MARK, MoveOrCopy, done_arrow, human_speed, item_progress_bar, message_with_arrow,
+};
 use anyhow::ensure;
 use colored::Colorize;
 use std::{fs, path::Path, sync::atomic::Ordering};
@@ -51,7 +53,7 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
 
     Ok(format!(
         "{} {}",
-        "↣".green().bold(),
+        done_arrow(true).green().bold(),
         format!(
             "{} {} in {}{}: {}",
             ctx.moc.action_done(true),
@@ -87,10 +89,15 @@ fn merge_or_copy_recursive<F: Fn(u64)>(
                 log::info!("{msg}");
             }
             log::error!(
-                "✗ Cancelled: {}",
+                "{FAIL_MARK} Cancelled: {}",
                 message_with_arrow(&entry, &dest_entry, ctx.moc)
             );
-            pb.abandon_with_message(format!("✗ {}", pb.message()).red().bold().to_string());
+            pb.abandon_with_message(
+                format!("{FAIL_MARK} {}", pb.message())
+                    .red()
+                    .bold()
+                    .to_string(),
+            );
             std::process::exit(130);
         }
 

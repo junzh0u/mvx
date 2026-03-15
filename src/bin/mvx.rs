@@ -38,7 +38,7 @@ fn main() {
         ctrlc: &ctrlc,
     };
     if let Err(e) = mvx::run_batch(&cli.srcs, &cli.dest, &ctx) {
-        eprintln!("{} {:?}", "✗".red().bold(), e);
+        eprintln!("{} {:?}", mvx::FAIL_MARK.red().bold(), e);
         std::process::exit(1);
     }
 }

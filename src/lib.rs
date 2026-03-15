@@ -104,31 +104,10 @@ pub fn init_logging(level_filter: LevelFilter) -> indicatif::MultiProgress {
     mp
 }
 
-/// # Errors
-///
-/// Will return `Err` if move/merge fails for any reason.
-#[allow(clippy::too_many_lines)]
-pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
-    srcs: Srcs,
-    dest: Dest,
-    ctx: &Ctx,
-) -> anyhow::Result<String> {
-    let srcs = srcs
-        .as_ref()
-        .iter()
-        .map(std::convert::AsRef::as_ref)
-        .collect::<Vec<_>>();
-    let dest = dest.as_ref();
-    log::trace!(
-        "run_batch('{:?}', '{}', {:?})",
-        srcs.iter().map(|s| s.display()).collect::<Vec<_>>(),
-        dest.display(),
-        ctx.moc,
-    );
-
+fn validate_sources(srcs: &[&Path], dest: &Path) -> anyhow::Result<()> {
     let mut all_files = true;
     let mut all_dirs = true;
-    for src in &srcs {
+    for src in srcs {
         if src.is_file() {
             all_dirs = false;
         } else if src.is_dir() {
@@ -151,6 +130,77 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
             "When there are multiple sources, they must be all files or all directories.",
         );
     }
+    Ok(())
+}
+
+fn process_source(
+    src: &Path,
+    dest: &Path,
+    batch_pb: &indicatif::ProgressBar,
+    base: u64,
+    ctx: &Ctx,
+) -> anyhow::Result<String> {
+    if src.is_file() {
+        file::move_or_copy(
+            src,
+            dest,
+            |bytes| {
+                batch_pb.set_position(base + bytes);
+            },
+            ctx,
+        )
+    } else {
+        dir::merge_or_copy(
+            src,
+            dest,
+            |dir_bytes| {
+                batch_pb.set_position(base + dir_bytes);
+            },
+            ctx,
+        )
+    }
+}
+
+fn print_batch_summary(
+    srcs: &[&Path],
+    sizes: &[u64],
+    elapsed: std::time::Duration,
+    ctx: &Ctx,
+) -> anyhow::Result<()> {
+    let total: u64 = sizes.iter().sum();
+    ctx.mp.println(format!(
+        "{} {} {} in {}{}",
+        ctx.moc.arrow().green().bold(),
+        ctx.moc.action_done(srcs[0].is_dir()),
+        indicatif::HumanBytes(total),
+        indicatif::HumanDuration(elapsed),
+        human_speed(total, elapsed),
+    ))?;
+    Ok(())
+}
+
+/// # Errors
+///
+/// Will return `Err` if move/merge fails for any reason.
+pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
+    srcs: Srcs,
+    dest: Dest,
+    ctx: &Ctx,
+) -> anyhow::Result<String> {
+    let srcs = srcs
+        .as_ref()
+        .iter()
+        .map(std::convert::AsRef::as_ref)
+        .collect::<Vec<_>>();
+    let dest = dest.as_ref();
+    log::trace!(
+        "run_batch('{:?}', '{}', {:?})",
+        srcs.iter().map(|s| s.display()).collect::<Vec<_>>(),
+        dest.display(),
+        ctx.moc,
+    );
+
+    validate_sources(&srcs, dest)?;
 
     if ctx.dry_run {
         for src in srcs {
@@ -191,26 +241,7 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
             file_name_lossy(src)
         ));
 
-        let base = cumulative;
-        let msg = if src.is_file() {
-            file::move_or_copy(
-                src,
-                dest,
-                |bytes| {
-                    batch_pb.set_position(base + bytes);
-                },
-                ctx,
-            )?
-        } else {
-            dir::merge_or_copy(
-                src,
-                dest,
-                |dir_bytes| {
-                    batch_pb.set_position(base + dir_bytes);
-                },
-                ctx,
-            )?
-        };
+        let msg = process_source(src, dest, &batch_pb, cumulative, ctx)?;
 
         cumulative += sizes[i];
         batch_pb.set_position(cumulative);
@@ -219,20 +250,7 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
     batch_pb.finish_and_clear();
 
     if n > 1 {
-        let total: u64 = sizes.iter().sum();
-        let elapsed = batch_timer.elapsed();
-        ctx.mp.println(format!(
-            "{} {}",
-            "✓".green().bold(),
-            format!(
-                "{} {} in {}{}",
-                ctx.moc.action_done(srcs[0].is_dir()),
-                indicatif::HumanBytes(total),
-                indicatif::HumanDuration(elapsed),
-                human_speed(total, elapsed),
-            )
-            .dimmed()
-        ))?;
+        print_batch_summary(&srcs, &sizes, batch_timer.elapsed(), ctx)?;
     }
 
     Ok(String::new())

@@ -1,6 +1,5 @@
-use crate::{Ctx, MoveOrCopy, done_arrow, human_speed, item_progress_bar, message_with_arrow};
+use crate::{Ctx, MoveOrCopy, SourceKind, item_progress_bar, message_with_arrow};
 use anyhow::{bail, ensure};
-use colored::Colorize;
 use std::{
     fs,
     io::{Read, Write},
@@ -53,7 +52,7 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
             );
             return Ok(format!(
                 "{} {}",
-                done_arrow(false).green().bold(),
+                SourceKind::File.done_arrow(),
                 ctx.maybe_dim(detail)
             ));
         }
@@ -82,19 +81,7 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
     }
     pb_bytes.finish_and_clear();
 
-    let detail = format!(
-        "{} {} in {}{}: {}",
-        ctx.moc.action_done(false),
-        indicatif::HumanBytes(file_size),
-        indicatif::HumanDuration(timer.elapsed()),
-        human_speed(file_size, timer.elapsed()),
-        message_with_arrow(src, dest, ctx.moc)
-    );
-    Ok(format!(
-        "{} {}",
-        done_arrow(false).green().bold(),
-        ctx.maybe_dim(detail)
-    ))
+    Ok(ctx.done_message(SourceKind::File, file_size, timer.elapsed(), src, dest))
 }
 
 fn buffered_copy<F: Fn(u64)>(

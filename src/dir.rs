@@ -1,6 +1,4 @@
-use crate::{
-    Ctx, FAIL_MARK, MoveOrCopy, done_arrow, human_speed, item_progress_bar, message_with_arrow,
-};
+use crate::{Ctx, FAIL_MARK, MoveOrCopy, SourceKind, item_progress_bar, message_with_arrow};
 use anyhow::ensure;
 use colored::Colorize;
 use std::{fs, path::Path, sync::atomic::Ordering};
@@ -51,19 +49,7 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
     }
     pb.finish_and_clear();
 
-    let detail = format!(
-        "{} {} in {}{}: {}",
-        ctx.moc.action_done(true),
-        indicatif::HumanBytes(total_size),
-        indicatif::HumanDuration(timer.elapsed()),
-        human_speed(total_size, timer.elapsed()),
-        message_with_arrow(src, dest, ctx.moc),
-    );
-    Ok(format!(
-        "{} {}",
-        done_arrow(true).green().bold(),
-        ctx.maybe_dim(detail)
-    ))
+    Ok(ctx.done_message(SourceKind::Dir, total_size, timer.elapsed(), src, dest))
 }
 
 fn merge_or_copy_recursive<F: Fn(u64)>(

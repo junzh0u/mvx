@@ -10,6 +10,25 @@ mod dir;
 mod file;
 
 #[derive(Debug, Clone, Copy)]
+pub enum SourceKind {
+    File,
+    Dir,
+    Mixed,
+}
+
+impl SourceKind {
+    #[must_use]
+    pub(crate) fn done_arrow(self) -> colored::ColoredString {
+        match self {
+            Self::File => "→",
+            Self::Dir | Self::Mixed => "↣",
+        }
+        .green()
+        .bold()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub enum MoveOrCopy {
     Move,
     Copy,
@@ -17,20 +36,24 @@ pub enum MoveOrCopy {
 
 impl MoveOrCopy {
     #[must_use]
-    pub const fn action(&self, is_dir: bool) -> &'static str {
-        match (self, is_dir) {
-            (Self::Move, true) => "merge",
-            (Self::Move, false) => "move",
-            (Self::Copy, _) => "copy",
+    pub const fn action(&self, kind: SourceKind) -> &'static str {
+        match (self, kind) {
+            (Self::Move, SourceKind::File) => "move",
+            (Self::Move, SourceKind::Dir) => "merge",
+            (Self::Move, SourceKind::Mixed) => "move/merge",
+            (Self::Copy, SourceKind::File | SourceKind::Dir) => "copy",
+            (Self::Copy, SourceKind::Mixed) => "copy/merge",
         }
     }
 
     #[must_use]
-    pub const fn action_done(&self, is_dir: bool) -> &'static str {
-        match (self, is_dir) {
-            (Self::Move, true) => "Merged",
-            (Self::Move, false) => "Moved",
-            (Self::Copy, _) => "Copied",
+    pub const fn action_done(&self, kind: SourceKind) -> &'static str {
+        match (self, kind) {
+            (Self::Move, SourceKind::File) => "Moved",
+            (Self::Move, SourceKind::Dir) => "Merged",
+            (Self::Move, SourceKind::Mixed) => "Moved/Merged",
+            (Self::Copy, SourceKind::File | SourceKind::Dir) => "Copied",
+            (Self::Copy, SourceKind::Mixed) => "Copied/Merged",
         }
     }
 
@@ -69,6 +92,35 @@ impl Ctx<'_> {
         } else {
             s
         }
+    }
+
+    /// Format a completion message for a file or directory operation.
+    #[must_use]
+    pub fn done_message<Src: AsRef<Path>, Dest: AsRef<Path>>(
+        &self,
+        kind: SourceKind,
+        size: u64,
+        elapsed: std::time::Duration,
+        src: Src,
+        dest: Dest,
+    ) -> String {
+        let detail = format!(
+            "{}: {}",
+            self.done_stats(kind, size, elapsed),
+            message_with_arrow(src, dest, self.moc),
+        );
+        format!("{} {}", kind.done_arrow(), self.maybe_dim(detail))
+    }
+
+    #[must_use]
+    fn done_stats(&self, kind: SourceKind, size: u64, elapsed: std::time::Duration) -> String {
+        format!(
+            "{} {} in {}{}",
+            self.moc.action_done(kind),
+            indicatif::HumanBytes(size),
+            indicatif::HumanDuration(elapsed),
+            human_speed(size, elapsed),
+        )
     }
 }
 
@@ -180,15 +232,11 @@ fn print_batch_summary(
     elapsed: std::time::Duration,
     ctx: &Ctx,
 ) -> anyhow::Result<()> {
-    let total: u64 = sizes.iter().sum();
-    let has_dir = srcs.iter().any(|s| s.is_dir());
+    let kind = source_kind(srcs);
     ctx.mp.println(format!(
-        "{} {} {} in {}{}",
-        done_arrow(has_dir).green().bold(),
-        ctx.moc.action_done(has_dir),
-        indicatif::HumanBytes(total),
-        indicatif::HumanDuration(elapsed),
-        human_speed(total, elapsed),
+        "{} {}",
+        kind.done_arrow(),
+        ctx.done_stats(kind, sizes.iter().sum(), elapsed),
     ))?;
     Ok(())
 }
@@ -220,7 +268,11 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
         for src in srcs {
             println!(
                 "Would {} '{}' to '{}'",
-                ctx.moc.action(src.is_dir()),
+                ctx.moc.action(if src.is_dir() {
+                    SourceKind::Dir
+                } else {
+                    SourceKind::File
+                }),
                 src.display(),
                 dest.display()
             );
@@ -320,6 +372,16 @@ fn item_progress_bar<Src: AsRef<Path>, Dest: AsRef<Path>>(
     bytes_progress_bar(size, color, moc).with_message(message_with_arrow(src, dest, moc))
 }
 
+fn source_kind(srcs: &[&Path]) -> SourceKind {
+    let has_file = srcs.iter().any(|s| s.is_file());
+    let has_dir = srcs.iter().any(|s| s.is_dir());
+    match (has_file, has_dir) {
+        (true, true) => SourceKind::Mixed,
+        (_, true) => SourceKind::Dir,
+        _ => SourceKind::File,
+    }
+}
+
 fn source_size(src: &Path) -> u64 {
     if src.is_file() {
         std::fs::metadata(src).map(|m| m.len()).unwrap_or(0)
@@ -329,10 +391,6 @@ fn source_size(src: &Path) -> u64 {
 }
 
 pub const FAIL_MARK: &str = "✗";
-
-pub(crate) const fn done_arrow(is_dir: bool) -> &'static str {
-    if is_dir { "↣" } else { "→" }
-}
 
 fn file_name_lossy(path: &Path) -> std::borrow::Cow<'_, str> {
     path.file_name()

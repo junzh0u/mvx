@@ -36,28 +36,6 @@ pub enum MoveOrCopy {
 
 impl MoveOrCopy {
     #[must_use]
-    pub const fn action(&self, kind: SourceKind) -> &'static str {
-        match (self, kind) {
-            (Self::Move, SourceKind::File) => "move",
-            (Self::Move, SourceKind::Dir) => "merge",
-            (Self::Move, SourceKind::Mixed) => "move/merge",
-            (Self::Copy, SourceKind::File | SourceKind::Dir) => "copy",
-            (Self::Copy, SourceKind::Mixed) => "copy/merge",
-        }
-    }
-
-    #[must_use]
-    pub const fn action_done(&self, kind: SourceKind) -> &'static str {
-        match (self, kind) {
-            (Self::Move, SourceKind::File) => "Moved",
-            (Self::Move, SourceKind::Dir) => "Merged",
-            (Self::Move, SourceKind::Mixed) => "Moved/Merged",
-            (Self::Copy, SourceKind::File | SourceKind::Dir) => "Copied",
-            (Self::Copy, SourceKind::Mixed) => "Copied/Merged",
-        }
-    }
-
-    #[must_use]
     pub const fn arrow(&self) -> &'static str {
         match self {
             Self::Move => "->",
@@ -116,7 +94,13 @@ impl Ctx<'_> {
     fn done_stats(&self, kind: SourceKind, size: u64, elapsed: std::time::Duration) -> String {
         format!(
             "{} {} in {}{}",
-            self.moc.action_done(kind),
+            match (self.moc, kind) {
+                (MoveOrCopy::Move, SourceKind::File) => "Moved",
+                (MoveOrCopy::Move, SourceKind::Dir) => "Merged",
+                (MoveOrCopy::Move, SourceKind::Mixed) => "Moved/Merged",
+                (MoveOrCopy::Copy, SourceKind::File | SourceKind::Dir) => "Copied",
+                (MoveOrCopy::Copy, SourceKind::Mixed) => "Copied/Merged",
+            },
             indicatif::HumanBytes(size),
             indicatif::HumanDuration(elapsed),
             human_speed(size, elapsed),
@@ -266,16 +250,12 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
 
     if ctx.dry_run {
         for src in srcs {
-            println!(
-                "Would {} '{}' to '{}'",
-                ctx.moc.action(if src.is_dir() {
-                    SourceKind::Dir
-                } else {
-                    SourceKind::File
-                }),
-                src.display(),
-                dest.display()
-            );
+            let action = match (ctx.moc, src.is_dir()) {
+                (MoveOrCopy::Move, true) => "merge",
+                (MoveOrCopy::Move, false) => "move",
+                (MoveOrCopy::Copy, _) => "copy",
+            };
+            println!("Would {action} '{}' to '{}'", src.display(), dest.display());
         }
         return Ok(String::new());
     }

@@ -297,18 +297,13 @@ fn file_name_lossy(path: &Path) -> std::borrow::Cow<'_, str> {
         .to_string_lossy()
 }
 
-#[allow(
-    clippy::cast_precision_loss,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss
-)]
 pub(crate) fn human_speed(bytes: u64, elapsed: std::time::Duration) -> String {
-    let secs = elapsed.as_secs_f64();
-    if secs < 0.001 {
+    let millis = elapsed.as_millis();
+    if millis == 0 {
         return String::new();
     }
-    let bps = bytes as f64 / secs;
-    format!(" ({}/s)", indicatif::HumanBytes(bps as u64))
+    let bps = u64::try_from(u128::from(bytes) * 1000 / millis).unwrap_or(u64::MAX);
+    format!(" ({}/s)", indicatif::HumanBytes(bps))
 }
 
 fn message_with_arrow<Src: AsRef<Path>, Dest: AsRef<Path>>(

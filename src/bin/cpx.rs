@@ -34,6 +34,7 @@ fn main() {
         moc: mvx::MoveOrCopy::Copy,
         force: cli.force,
         dry_run: cli.dry_run,
+        batch_size: cli.srcs.len(),
         mp: &mp,
         ctrlc: &ctrlc,
     };

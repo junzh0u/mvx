@@ -51,18 +51,18 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
     }
     pb.finish_and_clear();
 
+    let detail = format!(
+        "{} {} in {}{}: {}",
+        ctx.moc.action_done(true),
+        indicatif::HumanBytes(total_size),
+        indicatif::HumanDuration(timer.elapsed()),
+        human_speed(total_size, timer.elapsed()),
+        message_with_arrow(src, dest, ctx.moc),
+    );
     Ok(format!(
         "{} {}",
         done_arrow(true).green().bold(),
-        format!(
-            "{} {} in {}{}: {}",
-            ctx.moc.action_done(true),
-            indicatif::HumanBytes(total_size),
-            indicatif::HumanDuration(timer.elapsed()),
-            human_speed(total_size, timer.elapsed()),
-            message_with_arrow(src, dest, ctx.moc),
-        )
-        .dimmed()
+        ctx.maybe_dim(detail)
     ))
 }
 
@@ -173,6 +173,7 @@ mod tests {
             moc,
             force,
             dry_run: false,
+            batch_size: 1,
             mp: &mp,
             ctrlc: &ctrlc,
         };

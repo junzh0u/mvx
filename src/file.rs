@@ -43,14 +43,18 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
     };
     match result {
         Ok(()) => {
-            return Ok(format!(
-                "{} {}: {}",
-                done_arrow(false).green().bold(),
+            let detail = format!(
+                "{}: {}",
                 match ctx.moc {
                     MoveOrCopy::Move => "Renamed",
                     MoveOrCopy::Copy => "Reflinked",
                 },
                 message_with_arrow(src, dest, ctx.moc)
+            );
+            return Ok(format!(
+                "{} {}",
+                done_arrow(false).green().bold(),
+                ctx.maybe_dim(detail)
             ));
         }
         Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
@@ -78,18 +82,18 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
     }
     pb_bytes.finish_and_clear();
 
+    let detail = format!(
+        "{} {} in {}{}: {}",
+        ctx.moc.action_done(false),
+        indicatif::HumanBytes(file_size),
+        indicatif::HumanDuration(timer.elapsed()),
+        human_speed(file_size, timer.elapsed()),
+        message_with_arrow(src, dest, ctx.moc)
+    );
     Ok(format!(
         "{} {}",
         done_arrow(false).green().bold(),
-        format!(
-            "{} {} in {}{}: {}",
-            ctx.moc.action_done(false),
-            indicatif::HumanBytes(file_size),
-            indicatif::HumanDuration(timer.elapsed()),
-            human_speed(file_size, timer.elapsed()),
-            message_with_arrow(src, dest, ctx.moc)
-        )
-        .dimmed()
+        ctx.maybe_dim(detail)
     ))
 }
 
@@ -174,6 +178,7 @@ mod tests {
             moc: MoveOrCopy::Move,
             force,
             dry_run: false,
+            batch_size: 1,
             mp: &mp,
             ctrlc: &ctrlc,
         };
@@ -191,6 +196,7 @@ mod tests {
             moc: MoveOrCopy::Copy,
             force,
             dry_run: false,
+            batch_size: 1,
             mp: &mp,
             ctrlc: &ctrlc,
         };

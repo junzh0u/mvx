@@ -55,8 +55,21 @@ pub struct Ctx<'a> {
     pub moc: MoveOrCopy,
     pub force: bool,
     pub dry_run: bool,
+    pub batch_size: usize,
     pub mp: &'a indicatif::MultiProgress,
     pub ctrlc: &'a AtomicBool,
+}
+
+impl Ctx<'_> {
+    /// Dim the detail text when in a batch (batch summary is the primary output).
+    #[must_use]
+    pub fn maybe_dim(&self, s: String) -> String {
+        if self.batch_size > 1 {
+            s.dimmed().to_string()
+        } else {
+            s
+        }
+    }
 }
 
 #[must_use]
@@ -460,6 +473,7 @@ pub(crate) mod tests {
             moc,
             force,
             dry_run: false,
+            batch_size: srcs.as_ref().len(),
             mp: &mp,
             ctrlc: &ctrlc,
         };
@@ -625,6 +639,7 @@ pub(crate) mod tests {
             moc: MoveOrCopy::Move,
             force: false,
             dry_run: true,
+            batch_size: 1,
             mp: &mp,
             ctrlc: &ctrlc,
         };

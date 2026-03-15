@@ -54,10 +54,7 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
         "↣".green().bold(),
         format!(
             "{} {} in {}{}: {}",
-            match ctx.moc {
-                MoveOrCopy::Move => "Merged",
-                MoveOrCopy::Copy => "Copied",
-            },
+            ctx.moc.action_done(true),
             indicatif::HumanBytes(total_size),
             indicatif::HumanDuration(timer.elapsed()),
             human_speed(total_size, timer.elapsed()),

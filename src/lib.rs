@@ -17,10 +17,20 @@ pub enum MoveOrCopy {
 
 impl MoveOrCopy {
     #[must_use]
-    pub const fn verb(&self) -> &'static str {
-        match self {
-            Self::Move => "move",
-            Self::Copy => "copy",
+    pub const fn action(&self, is_dir: bool) -> &'static str {
+        match (self, is_dir) {
+            (Self::Move, true) => "merge",
+            (Self::Move, false) => "move",
+            (Self::Copy, _) => "copy",
+        }
+    }
+
+    #[must_use]
+    pub const fn action_done(&self, is_dir: bool) -> &'static str {
+        match (self, is_dir) {
+            (Self::Move, true) => "Merged",
+            (Self::Move, false) => "Moved",
+            (Self::Copy, _) => "Copied",
         }
     }
 
@@ -97,6 +107,7 @@ pub fn init_logging(level_filter: LevelFilter) -> indicatif::MultiProgress {
 /// # Errors
 ///
 /// Will return `Err` if move/merge fails for any reason.
+#[allow(clippy::too_many_lines)]
 pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
     srcs: Srcs,
     dest: Dest,
@@ -145,7 +156,7 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
         for src in srcs {
             println!(
                 "Would {} '{}' to '{}'",
-                ctx.moc.verb(),
+                ctx.moc.action(src.is_dir()),
                 src.display(),
                 dest.display()
             );
@@ -162,6 +173,7 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
         indicatif::ProgressBar::hidden()
     };
 
+    let batch_timer = std::time::Instant::now();
     let mut cumulative: u64 = 0;
     for (i, src) in srcs.iter().enumerate() {
         if ctx.ctrlc.load(Ordering::Relaxed) {
@@ -170,7 +182,7 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
         }
 
         let up_next = srcs.get(i + 1).map_or(String::new(), |s| {
-            format!(" (Up Next: {})", file_name_lossy(s))
+            format!(" (Up Next: {})", file_name_lossy(s).italic())
         });
         batch_pb.set_message(format!(
             "[{}/{}] {}{up_next}",
@@ -205,6 +217,23 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
         ctx.mp.println(msg)?;
     }
     batch_pb.finish_and_clear();
+
+    if n > 1 {
+        let total: u64 = sizes.iter().sum();
+        let elapsed = batch_timer.elapsed();
+        ctx.mp.println(format!(
+            "{} {}",
+            "✓".green().bold(),
+            format!(
+                "{} {} in {}{}",
+                ctx.moc.action_done(srcs[0].is_dir()),
+                indicatif::HumanBytes(total),
+                indicatif::HumanDuration(elapsed),
+                human_speed(total, elapsed),
+            )
+            .dimmed()
+        ))?;
+    }
 
     Ok(String::new())
 }

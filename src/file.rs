@@ -83,10 +83,7 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
         "→".green().bold(),
         format!(
             "{} {} in {}{}: {}",
-            match ctx.moc {
-                MoveOrCopy::Move => "Moved",
-                MoveOrCopy::Copy => "Copied",
-            },
+            ctx.moc.action_done(false),
             indicatif::HumanBytes(file_size),
             indicatif::HumanDuration(timer.elapsed()),
             human_speed(file_size, timer.elapsed()),

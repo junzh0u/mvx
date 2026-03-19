@@ -210,21 +210,6 @@ fn process_source(
     }
 }
 
-fn print_batch_summary(
-    srcs: &[&Path],
-    sizes: &[u64],
-    elapsed: std::time::Duration,
-    ctx: &Ctx,
-) -> anyhow::Result<()> {
-    let kind = source_kind(srcs);
-    ctx.mp.println(format!(
-        "{} {}",
-        kind.done_arrow(),
-        ctx.done_stats(kind, sizes.iter().sum(), elapsed),
-    ))?;
-    Ok(())
-}
-
 /// # Errors
 ///
 /// Will return `Err` if move/merge fails for any reason.
@@ -280,15 +265,17 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
             std::process::exit(130);
         }
 
-        let up_next = srcs.get(i + 1).map_or(String::new(), |s| {
-            format!(" (Up Next: {})", file_name_lossy(s).italic())
-        });
-        batch_pb.set_message(format!(
-            "[{}/{}] {}{up_next}",
-            i + 1,
-            n,
-            file_name_lossy(src)
-        ));
+        let up_next = srcs
+            .get(i + 1)
+            .map(|s| {
+                format!(
+                    " Up Next: {}",
+                    s.file_name().unwrap_or(s.as_os_str()).to_string_lossy()
+                )
+                .dimmed()
+            })
+            .unwrap_or_default();
+        batch_pb.set_message(format!("[{}/{}]{up_next}", i + 1, n));
 
         let msg = process_source(src, dest, &batch_pb, cumulative, ctx)?;
 
@@ -298,9 +285,12 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
     }
     batch_pb.finish_and_clear();
 
-    if n > 1 {
-        print_batch_summary(&srcs, &sizes, batch_timer.elapsed(), ctx)?;
-    }
+    let kind = source_kind(&srcs);
+    batch_pb.println(format!(
+        "{} {}",
+        kind.done_arrow(),
+        ctx.done_stats(kind, sizes.iter().sum(), batch_timer.elapsed()),
+    ));
 
     Ok(String::new())
 }
@@ -371,12 +361,6 @@ fn source_size(src: &Path) -> u64 {
 }
 
 pub const FAIL_MARK: &str = "✗";
-
-fn file_name_lossy(path: &Path) -> std::borrow::Cow<'_, str> {
-    path.file_name()
-        .unwrap_or(path.as_os_str())
-        .to_string_lossy()
-}
 
 pub(crate) fn human_speed(bytes: u64, elapsed: std::time::Duration) -> String {
     let millis = elapsed.as_millis();

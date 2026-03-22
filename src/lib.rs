@@ -13,7 +13,6 @@ mod file;
 pub enum SourceKind {
     File,
     Dir,
-    Mixed,
 }
 
 impl SourceKind {
@@ -21,7 +20,7 @@ impl SourceKind {
     pub(crate) fn done_arrow(self) -> colored::ColoredString {
         match self {
             Self::File => "→",
-            Self::Dir | Self::Mixed => "↣",
+            Self::Dir => "↣",
         }
         .green()
         .bold()
@@ -97,9 +96,7 @@ impl Ctx<'_> {
             match (self.moc, kind) {
                 (MoveOrCopy::Move, SourceKind::File) => "Moved",
                 (MoveOrCopy::Move, SourceKind::Dir) => "Merged",
-                (MoveOrCopy::Move, SourceKind::Mixed) => "Moved/Merged",
-                (MoveOrCopy::Copy, SourceKind::File | SourceKind::Dir) => "Copied",
-                (MoveOrCopy::Copy, SourceKind::Mixed) => "Copied/Merged",
+                (MoveOrCopy::Copy, _) => "Copied",
             },
             indicatif::HumanBytes(size),
             indicatif::HumanDuration(elapsed),
@@ -153,7 +150,7 @@ pub fn init_logging(level_filter: LevelFilter) -> indicatif::MultiProgress {
     mp
 }
 
-fn validate_sources(srcs: &[&Path], dest: &Path) -> anyhow::Result<()> {
+fn validate_sources(srcs: &[&Path], dest: &Path) -> anyhow::Result<SourceKind> {
     let mut all_files = true;
     let mut all_dirs = true;
     for src in srcs {
@@ -179,7 +176,12 @@ fn validate_sources(srcs: &[&Path], dest: &Path) -> anyhow::Result<()> {
             "When there are multiple sources, they must be all files or all directories.",
         );
     }
-    Ok(())
+
+    Ok(if all_files {
+        SourceKind::File
+    } else {
+        SourceKind::Dir
+    })
 }
 
 fn process_source(
@@ -231,7 +233,7 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
         ctx.moc,
     );
 
-    validate_sources(&srcs, dest)?;
+    let kind = validate_sources(&srcs, dest)?;
 
     if ctx.dry_run {
         for src in srcs {
@@ -285,7 +287,6 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
     }
     batch_pb.finish_and_clear();
 
-    let kind = source_kind(&srcs);
     batch_pb.println(format!(
         "{} {}",
         kind.done_arrow(),
@@ -340,16 +341,6 @@ fn item_progress_bar<Src: AsRef<Path>, Dest: AsRef<Path>>(
         "green"
     };
     bytes_progress_bar(size, color, moc).with_message(message_with_arrow(src, dest, moc))
-}
-
-fn source_kind(srcs: &[&Path]) -> SourceKind {
-    let has_file = srcs.iter().any(|s| s.is_file());
-    let has_dir = srcs.iter().any(|s| s.is_dir());
-    match (has_file, has_dir) {
-        (true, true) => SourceKind::Mixed,
-        (_, true) => SourceKind::Dir,
-        _ => SourceKind::File,
-    }
 }
 
 fn source_size(src: &Path) -> u64 {

@@ -41,13 +41,13 @@ Key differences from `mv`/`cp`: directories are **merged** (not nested), destina
 
 ### Multiple sources
 
-All sources must be the same kind (all files or all directories). Destination must be an existing directory.
+All sources must be the same kind (all files or all directories).
 
-| Sources | Dest is file | Dest is directory | Dest doesn't exist |
-|---------|-------------|-------------------|--------------------|
-| Files | Error | Moves/copies each into dir | Error |
-| Dirs | Error | Merges each into dir | Error |
-| Mixed | Error | Error | Error |
+| Sources | Dest is file | Dest is directory | Dest doesn't exist | Dest doesn't exist (trailing `/`) |
+|---------|-------------|-------------------|--------------------|-----------------------------------|
+| Files | Error | Moves/copies each into dir | Error | Creates dir, moves/copies each into dir |
+| Dirs | Error | Merges each into dir | Creates dir, merges each | Creates dir, merges each |
+| Mixed | Error | Error | Error | Error |
 
 ## Features
 

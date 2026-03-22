@@ -168,13 +168,18 @@ fn validate_sources(srcs: &[&Path], dest: &Path) -> anyhow::Result<SourceKind> {
 
     if srcs.len() > 1 {
         ensure!(
-            dest.is_dir(),
-            "When there are multiple sources, the destination must be a directory.",
-        );
-        ensure!(
             all_files || all_dirs,
             "When there are multiple sources, they must be all files or all directories.",
         );
+        if !dest.is_dir() {
+            if all_dirs || dest.to_string_lossy().ends_with('/') {
+                std::fs::create_dir_all(dest)?;
+            } else {
+                bail!(
+                    "When there are multiple file sources, the destination must be a directory or end with '/'."
+                );
+            }
+        }
     }
 
     Ok(if all_files {
@@ -523,7 +528,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn move_multiple_files_fails_when_dest_is_not_directory() {
+    fn move_multiple_files_fails_when_dest_does_not_exist_without_trailing_slash() {
         let work_dir = tempdir().unwrap();
         let src_content = "This is a test file";
         let src_paths = vec![
@@ -534,11 +539,48 @@ pub(crate) mod tests {
 
         assert_error_with_msg(
             _run_batch(&src_paths, &dest_dir, MoveOrCopy::Move, false),
-            "When there are multiple sources, the destination must be a directory.",
+            "destination must be a directory or end with '/'",
         );
         for src_path in src_paths {
             let dest_path = dest_dir.join(src_path.file_name().unwrap());
             assert_file_not_moved(&src_path, &dest_path);
+        }
+    }
+
+    #[test]
+    fn move_multiple_files_creates_dest_with_trailing_slash() {
+        let work_dir = tempdir().unwrap();
+        let src_content = "This is a test file";
+        let src_paths = vec![
+            create_temp_file(work_dir.path(), "a", src_content),
+            create_temp_file(work_dir.path(), "b", src_content),
+        ];
+        let dest_dir = work_dir.path().join("dest/");
+
+        _run_batch(&src_paths, &dest_dir, MoveOrCopy::Move, false).unwrap();
+        for src_path in &src_paths {
+            let dest_path = dest_dir.join(src_path.file_name().unwrap());
+            assert_file_moved(src_path, &dest_path, src_content);
+        }
+    }
+
+    #[test]
+    fn move_multiple_dirs_creates_dest_when_it_does_not_exist() {
+        let work_dir = tempdir().unwrap();
+        let src_dirs: Vec<_> = (0..3)
+            .map(|i| {
+                let d = tempdir().unwrap();
+                create_temp_file(d.path(), &format!("file{i}"), &format!("content{i}"));
+                d
+            })
+            .collect();
+        let dest_dir = work_dir.path().join("dest");
+
+        _run_batch(&src_dirs, &dest_dir, MoveOrCopy::Move, false).unwrap();
+        for (i, src_dir) in src_dirs.iter().enumerate() {
+            let src_path = src_dir.path().join(format!("file{i}"));
+            let dest_path = dest_dir.join(format!("file{i}"));
+            assert_file_moved(&src_path, &dest_path, &format!("content{i}"));
         }
     }
 

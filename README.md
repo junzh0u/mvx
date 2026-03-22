@@ -28,42 +28,28 @@ cpx [OPTIONS] <SOURCES>... <DEST>
 | `-h, --help` | Print help |
 | `-V, --version` | Print version |
 
+## Behavior Matrix
+
+Key differences from `mv`/`cp`: directories are **merged** (not nested), destination directories are **created automatically**, and existing files are **never overwritten** unless `-f` is specified.
+
+### Single source
+
+| Source | Dest is file | Dest is directory | Dest doesn't exist | Dest doesn't exist (trailing `/`) |
+|--------|-------------|-------------------|--------------------|------------------------------------|
+| File | Overwrites (`-f`) | Moves/copies into dir | Creates file | Creates dir, moves/copies into it |
+| Dir | Error | Merges contents | Creates dir, merges | Creates dir, merges |
+
+### Multiple sources
+
+All sources must be the same kind (all files or all directories). Destination must be an existing directory.
+
+| Sources | Dest is file | Dest is directory | Dest doesn't exist |
+|---------|-------------|-------------------|--------------------|
+| Files | Error | Moves/copies each into dir | Error |
+| Dirs | Error | Merges each into dir | Error |
+| Mixed | Error | Error | Error |
+
 ## Features
-
-### Directory Merging
-
-Unlike standard `mv`/`cp`, when the destination is an existing directory, `mvx`/`cpx` merges contents instead of nesting:
-
-```bash
-# Standard mv: creates dest/source_dir/
-mv source_dir/ dest/
-
-# mvx: merges source_dir/* into dest/*
-mvx source_dir/ dest/
-```
-
-Files unique to the destination are preserved. Overlapping files require `-f` to overwrite.
-
-### Safe by Default
-
-Existing files are never overwritten unless `-f` is specified:
-
-```bash
-# Fails if dest/file.txt exists
-mvx file.txt dest/
-
-# Overwrites dest/file.txt if it exists
-mvx -f file.txt dest/
-```
-
-### Automatic Directory Creation
-
-Destination directories are created automatically:
-
-```bash
-# Creates /path/to/new/dest/ if it doesn't exist
-mvx file.txt /path/to/new/dest/
-```
 
 ### Progress Bars
 
@@ -101,18 +87,6 @@ mvx -f source_dir/ dest_dir/
 # Copy with progress bar suppressed
 cpx -q large_file.iso /mnt/usb/
 ```
-
-## Differences from mv/cp
-
-| Behavior | mv/cp | mvx/cpx |
-|----------|-------|---------|
-| Directory to existing directory | Nests source inside dest | Merges contents |
-| Destination doesn't exist | Fails (for directories) | Creates automatically |
-| File exists at destination | Overwrites silently | Fails (use `-f` to overwrite) |
-| Cross-device operations | No progress indication | Shows progress bar |
-| Same-device moves | `rename` | `rename` (same) |
-| Same-filesystem copies | Full copy | `reflink` (instant clone) |
-| Ctrl+C | Stops immediately | Finishes current file, then stops |
 
 ## License
 

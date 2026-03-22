@@ -45,16 +45,17 @@ src/
 ### Key Design Patterns
 
 - **MoveOrCopy enum**: Drives behavior differences throughout the codebase
-- **Fast path optimization**: Tries `fs::rename()` (move) or `reflink::reflink()` (copy) first, falls back to `fs_extra` with progress bars on cross-device/unsupported errors
-- **Directory merging**: `dir::collect_files_in_dir()` flattens directories, processes files sorted by path, preserves unique destination files
-- **Progress tracking**: Optional `indicatif::MultiProgress` passed through call stack; `None` in quiet mode
-- **Ctrl-C handling**: `mpsc::Receiver<()>` checked between operations; exit code 130
+- **Fast path optimization**: Tries `fs::rename()` (move) or `reflink::reflink()` (copy) first, falls back to buffered I/O with progress bars on cross-device/unsupported errors
+- **Directory merging**: `dir::merge_or_copy_recursive()` walks directories via recursive DFS, sorted entries per level, preserves unique destination files
+- **Source validation**: `validate_sources()` rejects mixed file/dir sources and returns `SourceKind` (File or Dir)
+- **Progress tracking**: `indicatif::MultiProgress` passed through call stack; hidden draw target in quiet mode
+- **Ctrl-C handling**: `AtomicBool` checked between operations; exit code 130
 
 ### Module Responsibilities
 
-- **lib.rs**: `run_batch()` validates inputs, dispatches to file/dir modules, handles Ctrl-C between sources
+- **lib.rs**: `run_batch()` validates inputs (returning `SourceKind`), dispatches to file/dir modules, handles Ctrl-C between sources
 - **file.rs**: `move_or_copy()` handles destination resolution via `ensure_dest()`, creates intermediate directories, manages fast-path fallback
-- **dir.rs**: `merge_or_copy()` collects all files recursively, tracks cumulative progress across files, cleans up empty source directories after move
+- **dir.rs**: `merge_or_copy()` walks directories via recursive DFS, tracks cumulative progress across files, cleans up empty source directories after move
 
 ## Testing Notes
 

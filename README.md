@@ -5,7 +5,8 @@ Enhanced `mv` and `cp` commands with directory merging and progress bars.
 ## Installation
 
 ```bash
-cargo install --path .
+cargo install mvx              # From crates.io
+cargo install --path .         # From local source
 ```
 
 This installs both `mvx` (move) and `cpx` (copy) binaries.
@@ -23,8 +24,8 @@ cpx [OPTIONS] <SOURCES>... <DEST>
 |--------|-------------|
 | `-f, --force` | Overwrite existing files |
 | `-n, --dry-run` | Show what would be done without actually doing it |
-| `-q, --quiet` | Suppress progress bars and info messages |
-| `-v, --verbose` | Show detailed output |
+| `-q, --quiet...` | Decrease verbosity (repeat for quieter: `-qq`) |
+| `-v, --verbose...` | Increase verbosity (repeat for more: `-vv`) |
 | `-h, --help` | Print help |
 | `-V, --version` | Print version |
 

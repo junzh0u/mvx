@@ -51,6 +51,19 @@ impl MoveOrCopy {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct TransferStats {
+    pub io_bytes: u64,
+    pub fast_path_count: u64,
+}
+
+impl std::ops::AddAssign for TransferStats {
+    fn add_assign(&mut self, rhs: Self) {
+        self.io_bytes += rhs.io_bytes;
+        self.fast_path_count += rhs.fast_path_count;
+    }
+}
+
 pub struct Ctx<'a> {
     pub moc: MoveOrCopy,
     pub force: bool,
@@ -73,35 +86,69 @@ impl Ctx<'_> {
 
     /// Format a completion message for a file or directory operation.
     #[must_use]
-    pub fn done_message<Src: AsRef<Path>, Dest: AsRef<Path>>(
+    pub(crate) fn done_message<Src: AsRef<Path>, Dest: AsRef<Path>>(
         &self,
         kind: SourceKind,
-        size: u64,
+        stats: TransferStats,
         elapsed: std::time::Duration,
         src: Src,
         dest: Dest,
     ) -> String {
         let detail = format!(
             "{}: {}",
-            self.done_stats(kind, size, elapsed),
+            self.done_stats(kind, stats, elapsed),
             message_with_arrow(src, dest, self.moc),
         );
         format!("{} {}", kind.done_arrow(), self.maybe_dim(detail))
     }
 
     #[must_use]
-    fn done_stats(&self, kind: SourceKind, size: u64, elapsed: std::time::Duration) -> String {
-        format!(
-            "{} {} in {}{}",
-            match (self.moc, kind) {
-                (MoveOrCopy::Move, SourceKind::File) => "Moved",
-                (MoveOrCopy::Move, SourceKind::Dir) => "Merged",
-                (MoveOrCopy::Copy, _) => "Copied",
-            },
-            indicatif::HumanBytes(size),
-            indicatif::HumanDuration(elapsed),
-            human_speed(size, elapsed),
-        )
+    fn done_stats(
+        &self,
+        kind: SourceKind,
+        stats: TransferStats,
+        elapsed: std::time::Duration,
+    ) -> String {
+        let verb = match (self.moc, kind) {
+            (MoveOrCopy::Move, SourceKind::File) => "Moved",
+            (MoveOrCopy::Move, SourceKind::Dir) => "Merged",
+            (MoveOrCopy::Copy, _) => "Copied",
+        };
+
+        if stats.io_bytes > 0 {
+            let fast_suffix = if stats.fast_path_count > 0 {
+                let label = match self.moc {
+                    MoveOrCopy::Move => "renamed",
+                    MoveOrCopy::Copy => "reflinked",
+                };
+                format!(", {} {label}", stats.fast_path_count)
+            } else {
+                String::new()
+            };
+            format!(
+                "{verb} {} in {}{}{fast_suffix}",
+                indicatif::HumanBytes(stats.io_bytes),
+                indicatif::HumanDuration(elapsed),
+                human_speed(stats.io_bytes, elapsed),
+            )
+        } else if stats.fast_path_count > 0 {
+            let label = match self.moc {
+                MoveOrCopy::Move => "Renamed",
+                MoveOrCopy::Copy => "Reflinked",
+            };
+            let files = if stats.fast_path_count == 1 {
+                "file"
+            } else {
+                "files"
+            };
+            format!(
+                "{label} {} {files} in {}",
+                stats.fast_path_count,
+                indicatif::HumanDuration(elapsed),
+            )
+        } else {
+            format!("{verb} in {}", indicatif::HumanDuration(elapsed))
+        }
     }
 }
 
@@ -195,7 +242,7 @@ fn process_source(
     batch_pb: &indicatif::ProgressBar,
     base: u64,
     ctx: &Ctx,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<(String, TransferStats)> {
     if src.is_file() {
         file::move_or_copy(
             src,
@@ -263,6 +310,7 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
 
     let batch_timer = std::time::Instant::now();
     let mut cumulative: u64 = 0;
+    let mut batch_stats = TransferStats::default();
     for (i, src) in srcs.iter().enumerate() {
         if ctx.ctrlc.load(Ordering::Relaxed) {
             log::error!(
@@ -284,7 +332,8 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
             .unwrap_or_default();
         batch_pb.set_message(format!("[{}/{}]{up_next}", i + 1, n));
 
-        let msg = process_source(src, dest, &batch_pb, cumulative, ctx)?;
+        let (msg, stats) = process_source(src, dest, &batch_pb, cumulative, ctx)?;
+        batch_stats += stats;
 
         cumulative += sizes[i];
         batch_pb.set_position(cumulative);
@@ -295,7 +344,7 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
     batch_pb.println(format!(
         "{} {}",
         kind.done_arrow(),
-        ctx.done_stats(kind, sizes.iter().sum(), batch_timer.elapsed()),
+        ctx.done_stats(kind, batch_stats, batch_timer.elapsed()),
     ));
 
     Ok(String::new())

@@ -1,4 +1,4 @@
-use crate::{Ctx, MoveOrCopy, SourceKind, item_progress_bar, message_with_arrow};
+use crate::{Ctx, MoveOrCopy, SourceKind, TransferStats, item_progress_bar, message_with_arrow};
 use anyhow::{bail, ensure};
 use std::{
     fs,
@@ -11,7 +11,7 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
     dest: Dest,
     progress_cb: F,
     ctx: &Ctx,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<(String, TransferStats)> {
     let src = src.as_ref();
     log::trace!(
         "move_or_copy('{}', '{}', {:?}, force={})",
@@ -50,10 +50,17 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
                 },
                 message_with_arrow(src, dest, ctx.moc)
             );
-            return Ok(format!(
-                "{} {}",
-                SourceKind::File.done_arrow(),
-                ctx.maybe_dim(detail)
+            let stats = TransferStats {
+                io_bytes: 0,
+                fast_path_count: 1,
+            };
+            return Ok((
+                format!(
+                    "{} {}",
+                    SourceKind::File.done_arrow(),
+                    ctx.maybe_dim(detail)
+                ),
+                stats,
             ));
         }
         Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
@@ -81,7 +88,14 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
     }
     pb_bytes.finish_and_clear();
 
-    Ok(ctx.done_message(SourceKind::File, file_size, timer.elapsed(), src, dest))
+    let stats = TransferStats {
+        io_bytes: file_size,
+        fast_path_count: 0,
+    };
+    Ok((
+        ctx.done_message(SourceKind::File, stats, timer.elapsed(), src, dest),
+        stats,
+    ))
 }
 
 fn buffered_copy<F: Fn(u64)>(
@@ -169,7 +183,7 @@ mod tests {
             mp: &mp,
             ctrlc: &ctrlc,
         };
-        move_or_copy(src, dest, |_| {}, &ctx)
+        move_or_copy(src, dest, |_| {}, &ctx).map(|(msg, _)| msg)
     }
 
     fn copy_file<Src: AsRef<Path>, Dest: AsRef<Path>>(
@@ -187,7 +201,7 @@ mod tests {
             mp: &mp,
             ctrlc: &ctrlc,
         };
-        move_or_copy(src, dest, |_| {}, &ctx)
+        move_or_copy(src, dest, |_| {}, &ctx).map(|(msg, _)| msg)
     }
 
     #[test]

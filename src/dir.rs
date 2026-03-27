@@ -1,4 +1,6 @@
-use crate::{Ctx, FAIL_MARK, MoveOrCopy, SourceKind, item_progress_bar, message_with_arrow};
+use crate::{
+    Ctx, FAIL_MARK, MoveOrCopy, SourceKind, TransferStats, item_progress_bar, message_with_arrow,
+};
 use anyhow::ensure;
 use colored::Colorize;
 use std::{fs, path::Path, sync::atomic::Ordering};
@@ -8,7 +10,7 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
     dest: Dest,
     batch_cb: F,
     ctx: &Ctx,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<(String, TransferStats)> {
     let src = src.as_ref();
     let dest = dest.as_ref();
     log::trace!(
@@ -42,14 +44,17 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
         .mp
         .add(item_progress_bar(total_size, src, dest, ctx.moc));
 
-    merge_or_copy_recursive(src, dest, ctx, &pb, &batch_cb)?;
+    let stats = merge_or_copy_recursive(src, dest, ctx, &pb, &batch_cb)?;
 
     if matches!(ctx.moc, MoveOrCopy::Move) {
         let _ = fs::remove_dir(src);
     }
     pb.finish_and_clear();
 
-    Ok(ctx.done_message(SourceKind::Dir, total_size, timer.elapsed(), src, dest))
+    Ok((
+        ctx.done_message(SourceKind::Dir, stats, timer.elapsed(), src, dest),
+        stats,
+    ))
 }
 
 fn merge_or_copy_recursive<F: Fn(u64)>(
@@ -58,14 +63,15 @@ fn merge_or_copy_recursive<F: Fn(u64)>(
     ctx: &Ctx,
     pb: &indicatif::ProgressBar,
     batch_cb: &F,
-) -> anyhow::Result<Vec<String>> {
+) -> anyhow::Result<TransferStats> {
     let mut entries: Vec<_> = fs::read_dir(src)?
         .filter_map(Result::ok)
         .map(|e| e.path())
         .collect();
     entries.sort();
 
-    let mut msgs = Vec::new();
+    let mut stats = TransferStats::default();
+    let mut msgs: Vec<String> = Vec::new();
     for entry in entries {
         let name = entry.file_name().unwrap();
         let dest_entry = dest.join(name);
@@ -89,20 +95,14 @@ fn merge_or_copy_recursive<F: Fn(u64)>(
 
         if entry.is_dir() {
             fs::create_dir_all(&dest_entry)?;
-            msgs.extend(merge_or_copy_recursive(
-                &entry,
-                &dest_entry,
-                ctx,
-                pb,
-                batch_cb,
-            )?);
+            stats += merge_or_copy_recursive(&entry, &dest_entry, ctx, pb, batch_cb)?;
             if matches!(ctx.moc, MoveOrCopy::Move) {
                 let _ = fs::remove_dir(&entry);
             }
         } else {
             let file_size = fs::metadata(&entry).map(|m| m.len()).unwrap_or(0);
             let init_pos = pb.position();
-            let msg = crate::file::move_or_copy(
+            let (msg, file_stats) = crate::file::move_or_copy(
                 &entry,
                 &dest_entry,
                 |copied_bytes: u64| {
@@ -116,10 +116,11 @@ fn merge_or_copy_recursive<F: Fn(u64)>(
             let final_pos = init_pos + file_size;
             pb.set_position(final_pos);
             batch_cb(final_pos);
+            stats += file_stats;
             msgs.push(msg);
         }
     }
-    Ok(msgs)
+    Ok(stats)
 }
 
 pub(crate) fn collect_total_size(dir: &Path) -> u64 {
@@ -163,7 +164,7 @@ mod tests {
             mp: &mp,
             ctrlc: &ctrlc,
         };
-        merge_or_copy(src, dest, |_| {}, &ctx)
+        merge_or_copy(src, dest, |_| {}, &ctx).map(|(msg, _)| msg)
     }
 
     #[test]

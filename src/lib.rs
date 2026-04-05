@@ -1,4 +1,4 @@
-use anyhow::{bail, ensure};
+use anyhow::{Context, bail, ensure};
 use colored::Colorize;
 use log::LevelFilter;
 use std::io::Write;
@@ -332,7 +332,8 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
             .unwrap_or_default();
         batch_pb.set_message(format!("[{}/{}]{up_next}", i + 1, n));
 
-        let (msg, stats) = process_source(src, dest, &batch_pb, cumulative, ctx)?;
+        let (msg, stats) = process_source(src, dest, &batch_pb, cumulative, ctx)
+            .with_context(|| message_with_arrow(src, dest, ctx.moc))?;
         batch_stats += stats;
 
         cumulative += sizes[i];
@@ -520,11 +521,10 @@ pub(crate) mod tests {
 
     pub(crate) fn assert_error_with_msg(result: anyhow::Result<String>, msg: &str) {
         assert!(result.is_err(), "Expected an error, but got success");
-        let err_msg = result.unwrap_err().to_string();
+        let err_msg = format!("{:#}", result.unwrap_err());
         assert!(
             err_msg.contains(msg),
-            "Error message doesn't mention that source doesn't exist: {}",
-            err_msg
+            "Error message doesn't contain '{msg}': {err_msg}",
         );
     }
 

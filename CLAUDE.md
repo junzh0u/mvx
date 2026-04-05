@@ -45,6 +45,7 @@ src/
 
 ### Key Design Patterns
 
+- **Error context**: Use `anyhow::Context::with_context()` at call sites (not every `?`) to add file path info to errors. Binaries display errors with `{:?}` (Debug), which shows the full anyhow chain. Tests use `format!("{:#}", err)` to check error messages through context wrapping.
 - **MoveOrCopy enum**: Drives behavior differences throughout the codebase
 - **Fast path optimization**: Tries `fs::rename()` (move) or `reflink::reflink()` (copy) first, falls back to buffered I/O with progress bars on cross-device/unsupported errors
 - **Directory merging**: `dir::merge_or_copy()` walks directories via recursive DFS, sorted entries per level, preserves unique destination files

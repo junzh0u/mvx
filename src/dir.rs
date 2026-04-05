@@ -1,7 +1,7 @@
 use crate::{
     Ctx, FAIL_MARK, MoveOrCopy, SourceKind, TransferStats, item_progress_bar, message_with_arrow,
 };
-use anyhow::ensure;
+use anyhow::{Context, ensure};
 use colored::Colorize;
 use std::{fs, path::Path, sync::atomic::Ordering};
 
@@ -34,7 +34,8 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
             dest.display()
         );
     } else {
-        fs::create_dir_all(dest)?;
+        fs::create_dir_all(dest)
+            .with_context(|| format!("creating directory '{}'", dest.display()))?;
     }
 
     let timer = std::time::Instant::now();
@@ -64,7 +65,8 @@ fn merge_or_copy_recursive<F: Fn(u64)>(
     pb: &indicatif::ProgressBar,
     batch_cb: &F,
 ) -> anyhow::Result<TransferStats> {
-    let mut entries: Vec<_> = fs::read_dir(src)?
+    let mut entries: Vec<_> = fs::read_dir(src)
+        .with_context(|| format!("reading directory '{}'", src.display()))?
         .filter_map(Result::ok)
         .map(|e| e.path())
         .collect();
@@ -94,7 +96,8 @@ fn merge_or_copy_recursive<F: Fn(u64)>(
         }
 
         if entry.is_dir() {
-            fs::create_dir_all(&dest_entry)?;
+            fs::create_dir_all(&dest_entry)
+                .with_context(|| format!("creating directory '{}'", dest_entry.display()))?;
             stats += merge_or_copy_recursive(&entry, &dest_entry, ctx, pb, batch_cb)?;
             if matches!(ctx.moc, MoveOrCopy::Move) {
                 let _ = fs::remove_dir(&entry);
@@ -110,7 +113,8 @@ fn merge_or_copy_recursive<F: Fn(u64)>(
                     batch_cb(init_pos + copied_bytes);
                 },
                 ctx,
-            )?;
+            )
+            .with_context(|| message_with_arrow(&entry, &dest_entry, ctx.moc))?;
             // Snap to correct position after completion (handles fast-path
             // where rename/reflink succeeds without calling progress_cb).
             let final_pos = init_pos + file_size;
@@ -393,7 +397,7 @@ mod tests {
         let result = _merge_or_copy(&src_dir, &dest_dir, MoveOrCopy::Move, false);
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("already exists"));
+        assert!(format!("{:#}", result.unwrap_err()).contains("already exists"));
     }
 
     #[test]

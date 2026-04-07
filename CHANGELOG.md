@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.2.9 - 2026-04-07
+
+### Features
+
+- Exclude renamed/reflinked files from throughput summary
+
+### Fixes
+
+- Include file path in error output via anyhow context
+
+### Performance
+
+- Skip recursive walk when moving directory to non-existent dest (single rename)
+- Rename non-overlapping subdirectories wholesale during merge
+- Skip `collect_total_size` and progress bar for same-device moves
+
+### Docs
+
+- Add crates.io install option, fix verbosity flag descriptions
+
+### Chores
+
+- Populate GitHub Release notes from CHANGELOG.md
+
 ## v0.2.8 - 2026-03-21
 
 ### Features

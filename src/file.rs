@@ -52,7 +52,8 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
             );
             let stats = TransferStats {
                 io_bytes: 0,
-                fast_path_count: 1,
+                fast_path_file_count: 1,
+                fast_path_dir_count: 0,
             };
             return Ok((
                 format!(
@@ -90,7 +91,8 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
 
     let stats = TransferStats {
         io_bytes: file_size,
-        fast_path_count: 0,
+        fast_path_file_count: 0,
+        fast_path_dir_count: 0,
     };
     Ok((
         ctx.done_message(SourceKind::File, stats, timer.elapsed(), src, dest),

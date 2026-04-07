@@ -33,9 +33,6 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
             "Destination '{}' already exists and is not a directory",
             dest.display()
         );
-    } else {
-        fs::create_dir_all(dest)
-            .with_context(|| format!("creating directory '{}'", dest.display()))?;
     }
 
     let timer = std::time::Instant::now();
@@ -65,6 +62,42 @@ fn merge_or_copy_recursive<F: Fn(u64)>(
     pb: &indicatif::ProgressBar,
     batch_cb: &F,
 ) -> anyhow::Result<TransferStats> {
+    // Fast path: move to non-existent dest — single rename
+    if matches!(ctx.moc, MoveOrCopy::Move) && !dest.exists() {
+        if let Some(parent) = dest.parent().filter(|p| !p.exists()) {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("creating parent directory '{}'", parent.display()))?;
+        }
+        match fs::rename(src, dest) {
+            Ok(()) => {
+                let dir_size = collect_total_size(dest);
+                pb.inc(dir_size);
+                batch_cb(pb.position());
+                return Ok(TransferStats {
+                    fast_path_dir_count: 1,
+                    ..Default::default()
+                });
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
+                log::debug!(
+                    "'{}' and '{}' are on different devices, falling back to recursive merge.",
+                    src.display(),
+                    dest.display(),
+                );
+            }
+            Err(e) => {
+                return Err(e).with_context(|| {
+                    format!("renaming '{}' to '{}'", src.display(), dest.display())
+                });
+            }
+        }
+    }
+
+    if !dest.exists() {
+        fs::create_dir_all(dest)
+            .with_context(|| format!("creating directory '{}'", dest.display()))?;
+    }
+
     let mut entries: Vec<_> = fs::read_dir(src)
         .with_context(|| format!("reading directory '{}'", src.display()))?
         .filter_map(Result::ok)
@@ -96,8 +129,6 @@ fn merge_or_copy_recursive<F: Fn(u64)>(
         }
 
         if entry.is_dir() {
-            fs::create_dir_all(&dest_entry)
-                .with_context(|| format!("creating directory '{}'", dest_entry.display()))?;
             stats += merge_or_copy_recursive(&entry, &dest_entry, ctx, pb, batch_cb)?;
             if matches!(ctx.moc, MoveOrCopy::Move) {
                 let _ = fs::remove_dir(&entry);
@@ -412,6 +443,69 @@ mod tests {
 
         assert!(dest_dir.path().join("empty_dir").is_dir());
         assert!(dest_dir.path().join("subdir/empty_nested").is_dir());
+        assert!(!src_dir.path().exists());
+    }
+
+    #[test]
+    fn move_to_nonexistent_dest_uses_fast_path() {
+        let src_dir = tempdir().unwrap();
+        create_temp_file(src_dir.path(), "file1", "content1");
+        create_temp_file(src_dir.path(), "subdir/file2", "content2");
+
+        let work_dir = tempdir().unwrap();
+        let dest_dir = work_dir.path().join("new_dest");
+
+        let mp = hidden_multi_progress();
+        let ctrlc = noop_ctrlc();
+        let ctx = Ctx {
+            moc: MoveOrCopy::Move,
+            force: false,
+            dry_run: false,
+            batch_size: 1,
+            mp: &mp,
+            ctrlc: &ctrlc,
+        };
+        let (msg, stats) = merge_or_copy(&src_dir, &dest_dir, |_| {}, &ctx).unwrap();
+
+        assert!(msg.contains("Renamed"));
+        assert!(msg.contains("directory"));
+        assert_eq!(stats.fast_path_dir_count, 1);
+        assert_eq!(stats.fast_path_file_count, 0);
+        assert_eq!(stats.io_bytes, 0);
+        assert!(!src_dir.path().exists());
+        assert!(dest_dir.join("file1").exists());
+        assert!(dest_dir.join("subdir/file2").exists());
+    }
+
+    #[test]
+    fn merge_renames_non_overlapping_subdirs() {
+        let src_dir = tempdir().unwrap();
+        create_temp_file(src_dir.path(), "overlap/src_file", "from src");
+        create_temp_file(src_dir.path(), "unique_src/file1", "content1");
+        create_temp_file(src_dir.path(), "unique_src/nested/file2", "content2");
+
+        let dest_dir = tempdir().unwrap();
+        create_temp_file(dest_dir.path(), "overlap/dest_file", "from dest");
+
+        let mp = hidden_multi_progress();
+        let ctrlc = noop_ctrlc();
+        let ctx = Ctx {
+            moc: MoveOrCopy::Move,
+            force: false,
+            dry_run: false,
+            batch_size: 1,
+            mp: &mp,
+            ctrlc: &ctrlc,
+        };
+        let (_, stats) = merge_or_copy(&src_dir, &dest_dir, |_| {}, &ctx).unwrap();
+
+        // unique_src/ was renamed wholesale
+        assert_eq!(stats.fast_path_dir_count, 1);
+        assert!(dest_dir.path().join("unique_src/file1").exists());
+        assert!(dest_dir.path().join("unique_src/nested/file2").exists());
+        // overlap/ was merged individually
+        assert!(dest_dir.path().join("overlap/src_file").exists());
+        assert!(dest_dir.path().join("overlap/dest_file").exists());
         assert!(!src_dir.path().exists());
     }
 

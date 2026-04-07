@@ -54,13 +54,44 @@ impl MoveOrCopy {
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct TransferStats {
     pub io_bytes: u64,
-    pub fast_path_count: u64,
+    pub fast_path_file_count: u64,
+    pub fast_path_dir_count: u64,
+}
+
+impl TransferStats {
+    /// Format fast-path counts as e.g. "1 directory", "3 files", "1 directory + 3 files".
+    /// Returns `None` when both counts are zero.
+    #[must_use]
+    fn fast_path_summary(self) -> Option<String> {
+        if self.fast_path_file_count == 0 && self.fast_path_dir_count == 0 {
+            return None;
+        }
+        let mut parts = Vec::new();
+        if self.fast_path_dir_count > 0 {
+            let noun = if self.fast_path_dir_count == 1 {
+                "directory"
+            } else {
+                "directories"
+            };
+            parts.push(format!("{} {noun}", self.fast_path_dir_count));
+        }
+        if self.fast_path_file_count > 0 {
+            let noun = if self.fast_path_file_count == 1 {
+                "file"
+            } else {
+                "files"
+            };
+            parts.push(format!("{} {noun}", self.fast_path_file_count));
+        }
+        Some(parts.join(" + "))
+    }
 }
 
 impl std::ops::AddAssign for TransferStats {
     fn add_assign(&mut self, rhs: Self) {
         self.io_bytes += rhs.io_bytes;
-        self.fast_path_count += rhs.fast_path_count;
+        self.fast_path_file_count += rhs.fast_path_file_count;
+        self.fast_path_dir_count += rhs.fast_path_dir_count;
     }
 }
 
@@ -115,13 +146,15 @@ impl Ctx<'_> {
             (MoveOrCopy::Copy, _) => "Copied",
         };
 
+        let fast_parts = stats.fast_path_summary();
+
         if stats.io_bytes > 0 {
-            let fast_suffix = if stats.fast_path_count > 0 {
+            let fast_suffix = if let Some(summary) = &fast_parts {
                 let label = match self.moc {
                     MoveOrCopy::Move => "renamed",
                     MoveOrCopy::Copy => "reflinked",
                 };
-                format!(", {} {label}", stats.fast_path_count)
+                format!(", {summary} {label}")
             } else {
                 String::new()
             };
@@ -131,21 +164,12 @@ impl Ctx<'_> {
                 indicatif::HumanDuration(elapsed),
                 human_speed(stats.io_bytes, elapsed),
             )
-        } else if stats.fast_path_count > 0 {
+        } else if let Some(summary) = &fast_parts {
             let label = match self.moc {
                 MoveOrCopy::Move => "Renamed",
                 MoveOrCopy::Copy => "Reflinked",
             };
-            let files = if stats.fast_path_count == 1 {
-                "file"
-            } else {
-                "files"
-            };
-            format!(
-                "{label} {} {files} in {}",
-                stats.fast_path_count,
-                indicatif::HumanDuration(elapsed),
-            )
+            format!("{label} {summary} in {}", indicatif::HumanDuration(elapsed),)
         } else {
             format!("{verb} in {}", indicatif::HumanDuration(elapsed))
         }

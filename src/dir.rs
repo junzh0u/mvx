@@ -5,6 +5,19 @@ use anyhow::{Context, ensure};
 use colored::Colorize;
 use std::{fs, path::Path, sync::atomic::Ordering};
 
+/// Check whether `src` and `dest` reside on the same filesystem.
+/// If `dest` doesn't exist, walks up to its nearest existing ancestor.
+/// Returns `false` on any error (safe fallback to slower path).
+pub(crate) fn same_device(src: &Path, dest: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let Ok(src_dev) = fs::metadata(src).map(|m| m.dev()) else {
+        return false;
+    };
+    std::iter::successors(Some(dest), |p| p.parent())
+        .find_map(|p| fs::metadata(p).ok())
+        .is_some_and(|m| m.dev() == src_dev)
+}
+
 pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
     src: Src,
     dest: Dest,
@@ -36,11 +49,15 @@ pub(crate) fn merge_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
     }
 
     let timer = std::time::Instant::now();
+    let skip_sizing = matches!(ctx.moc, MoveOrCopy::Move) && same_device(src, dest);
 
-    let total_size = collect_total_size(src);
-    let pb = ctx
-        .mp
-        .add(item_progress_bar(total_size, src, dest, ctx.moc));
+    let pb = if skip_sizing {
+        indicatif::ProgressBar::hidden()
+    } else {
+        let total_size = collect_total_size(src);
+        ctx.mp
+            .add(item_progress_bar(total_size, src, dest, ctx.moc))
+    };
 
     let stats = merge_or_copy_recursive(src, dest, ctx, &pb, &batch_cb)?;
 
@@ -70,9 +87,10 @@ fn merge_or_copy_recursive<F: Fn(u64)>(
         }
         match fs::rename(src, dest) {
             Ok(()) => {
-                let dir_size = collect_total_size(dest);
-                pb.inc(dir_size);
-                batch_cb(pb.position());
+                if !pb.is_hidden() {
+                    pb.inc(collect_total_size(dest));
+                    batch_cb(pb.position());
+                }
                 return Ok(TransferStats {
                     fast_path_dir_count: 1,
                     ..Default::default()

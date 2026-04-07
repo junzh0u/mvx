@@ -265,26 +265,18 @@ fn process_source(
     dest: &Path,
     batch_pb: &indicatif::ProgressBar,
     base: u64,
+    sized: bool,
     ctx: &Ctx,
 ) -> anyhow::Result<(String, TransferStats)> {
+    let progress = move |bytes: u64| {
+        if sized {
+            batch_pb.set_position(base + bytes);
+        }
+    };
     if src.is_file() {
-        file::move_or_copy(
-            src,
-            dest,
-            |bytes| {
-                batch_pb.set_position(base + bytes);
-            },
-            ctx,
-        )
+        file::move_or_copy(src, dest, progress, ctx)
     } else {
-        dir::merge_or_copy(
-            src,
-            dest,
-            |dir_bytes| {
-                batch_pb.set_position(base + dir_bytes);
-            },
-            ctx,
-        )
+        dir::merge_or_copy(src, dest, progress, ctx)
     }
 }
 
@@ -324,7 +316,14 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
     }
 
     let n = srcs.len();
-    let sizes: Vec<u64> = srcs.iter().map(|s| source_size(s)).collect();
+    let sizes: Vec<u64> = srcs
+        .iter()
+        .map(|s| {
+            let skip =
+                matches!(ctx.moc, MoveOrCopy::Move) && s.is_dir() && dir::same_device(s, dest);
+            if skip { 0 } else { source_size(s) }
+        })
+        .collect();
     let batch_pb = if n > 1 {
         ctx.mp
             .add(bytes_progress_bar(sizes.iter().sum(), "blue", ctx.moc))
@@ -356,7 +355,7 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
             .unwrap_or_default();
         batch_pb.set_message(format!("[{}/{}]{up_next}", i + 1, n));
 
-        let (msg, stats) = process_source(src, dest, &batch_pb, cumulative, ctx)
+        let (msg, stats) = process_source(src, dest, &batch_pb, cumulative, sizes[i] > 0, ctx)
             .with_context(|| message_with_arrow(src, dest, ctx.moc))?;
         batch_stats += stats;
 

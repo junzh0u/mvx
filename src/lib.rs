@@ -457,11 +457,20 @@ fn message_with_arrow<Src: AsRef<Path>, Dest: AsRef<Path>>(
     let src_parts: Vec<_> = src.components().collect();
     let dest_parts: Vec<_> = dest.components().collect();
 
-    let prefix_len = src_parts
+    let mut prefix_len = src_parts
         .iter()
         .zip(dest_parts.iter())
         .take_while(|(a, b)| a == b)
         .count();
+    // Don't factor out a root-only prefix — absorb "/" into the diffs
+    if prefix_len == 1
+        && matches!(
+            src_parts[0],
+            std::path::Component::RootDir | std::path::Component::Prefix(_)
+        )
+    {
+        prefix_len = 0;
+    }
 
     let src_rest = &src_parts[prefix_len..];
     let dest_rest = &dest_parts[prefix_len..];
@@ -490,7 +499,11 @@ fn message_with_arrow<Src: AsRef<Path>, Dest: AsRef<Path>>(
         .collect();
     let suffix: PathBuf = src_parts[src_parts.len() - suffix_len..].iter().collect();
 
-    let diff = format!("{{{} {arrow} {}}}", src_diff.display(), dest_diff.display());
+    let diff = format!(
+        "{{ {} {arrow} {} }}",
+        src_diff.display(),
+        dest_diff.display()
+    );
 
     let prefix_str = prefix.display().to_string();
     let sep = if prefix_str.ends_with('/') { "" } else { "/" };
@@ -498,9 +511,11 @@ fn message_with_arrow<Src: AsRef<Path>, Dest: AsRef<Path>>(
     if styled {
         let dim = |s: &str| s.dimmed().to_string();
         let diff = format!(
-            "{{{} {arrow} {}}}",
+            "{} {} {arrow} {} {}",
+            dim("{"),
             src_diff.display().to_string().magenta(),
-            dest_diff.display().to_string().green()
+            dest_diff.display().to_string().green(),
+            dim("}")
         );
         let italic = |s: &str| s.italic().to_string();
         match (prefix_len > 0, suffix_len > 0) {
@@ -911,7 +926,7 @@ pub(crate) mod tests {
     fn message_with_arrow_common_prefix_only() {
         assert_eq!(
             message_with_arrow("/a/b/c/d", "/a/b/x/y", MoveOrCopy::Move, false),
-            "/a/b/{c/d -> x/y}"
+            "/a/b/{ c/d -> x/y }"
         );
     }
 
@@ -924,7 +939,7 @@ pub(crate) mod tests {
                 MoveOrCopy::Move,
                 false
             ),
-            "/a/{b/c -> x/y}/file.txt"
+            "/a/{ b/c -> x/y }/file.txt"
         );
     }
 
@@ -937,7 +952,7 @@ pub(crate) mod tests {
                 MoveOrCopy::Move,
                 false,
             ),
-            "/Users/junz/subtitled/{todo/.organized -> .organized}"
+            "/Users/junz/subtitled/{ todo/.organized -> .organized }"
         );
     }
 
@@ -953,7 +968,7 @@ pub(crate) mod tests {
     fn message_with_arrow_only_root_common() {
         assert_eq!(
             message_with_arrow("/foo/bar", "/baz/qux", MoveOrCopy::Move, false),
-            "/{foo/bar -> baz/qux}"
+            "/foo/bar -> /baz/qux"
         );
     }
 
@@ -961,7 +976,7 @@ pub(crate) mod tests {
     fn message_with_arrow_copy() {
         assert_eq!(
             message_with_arrow("/a/b/src.txt", "/a/c/src.txt", MoveOrCopy::Copy, false),
-            "/a/{b => c}/src.txt"
+            "/a/{ b => c }/src.txt"
         );
     }
 
@@ -969,7 +984,7 @@ pub(crate) mod tests {
     fn message_with_arrow_suffix_only() {
         assert_eq!(
             message_with_arrow("foo/common.txt", "bar/common.txt", MoveOrCopy::Move, false),
-            "{foo -> bar}/common.txt"
+            "{ foo -> bar }/common.txt"
         );
     }
 }

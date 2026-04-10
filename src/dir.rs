@@ -135,7 +135,7 @@ fn merge_or_copy_recursive<F: Fn(u64)>(
             }
             log::error!(
                 "{FAIL_MARK} Cancelled: {}",
-                message_with_arrow(&entry, &dest_entry, ctx.moc)
+                message_with_arrow(&entry, &dest_entry, ctx.moc, true)
             );
             pb.abandon_with_message(
                 format!("{FAIL_MARK} {}", pb.message())
@@ -163,7 +163,7 @@ fn merge_or_copy_recursive<F: Fn(u64)>(
                 },
                 ctx,
             )
-            .with_context(|| message_with_arrow(&entry, &dest_entry, ctx.moc))?;
+            .with_context(|| message_with_arrow(&entry, &dest_entry, ctx.moc, false))?;
             // Snap to correct position after completion (handles fast-path
             // where rename/reflink succeeds without calling progress_cb).
             let final_pos = init_pos + file_size;

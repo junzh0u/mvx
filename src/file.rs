@@ -48,7 +48,7 @@ pub(crate) fn move_or_copy<Src: AsRef<Path>, Dest: AsRef<Path>, F: Fn(u64)>(
                     MoveOrCopy::Move => "Renamed",
                     MoveOrCopy::Copy => "Reflinked",
                 },
-                message_with_arrow(src, dest, ctx.moc)
+                message_with_arrow(src, dest, ctx.moc, true)
             );
             let stats = TransferStats {
                 io_bytes: 0,

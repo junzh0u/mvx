@@ -128,7 +128,7 @@ impl Ctx<'_> {
         let detail = format!(
             "{}: {}",
             self.done_stats(kind, stats, elapsed),
-            message_with_arrow(src, dest, self.moc),
+            message_with_arrow(src, dest, self.moc, true),
         );
         format!("{} {}", kind.done_arrow(), self.maybe_dim(detail))
     }
@@ -338,7 +338,7 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
         if ctx.ctrlc.load(Ordering::Relaxed) {
             log::error!(
                 "{FAIL_MARK} Cancelled: {}",
-                message_with_arrow(src, dest, ctx.moc)
+                message_with_arrow(src, dest, ctx.moc, true)
             );
             std::process::exit(130);
         }
@@ -356,7 +356,7 @@ pub fn run_batch<Src: AsRef<Path>, Srcs: AsRef<[Src]>, Dest: AsRef<Path>>(
         batch_pb.set_message(format!("[{}/{}]{up_next}", i + 1, n));
 
         let (msg, stats) = process_source(src, dest, &batch_pb, cumulative, sizes[i] > 0, ctx)
-            .with_context(|| message_with_arrow(src, dest, ctx.moc))?;
+            .with_context(|| message_with_arrow(src, dest, ctx.moc, false))?;
         batch_stats += stats;
 
         cumulative += sizes[i];
@@ -418,7 +418,7 @@ fn item_progress_bar<Src: AsRef<Path>, Dest: AsRef<Path>>(
     } else {
         "green"
     };
-    bytes_progress_bar(size, color, moc).with_message(message_with_arrow(src, dest, moc))
+    bytes_progress_bar(size, color, moc).with_message(message_with_arrow(src, dest, moc, true))
 }
 
 fn source_size(src: &Path) -> u64 {
@@ -444,6 +444,7 @@ fn message_with_arrow<Src: AsRef<Path>, Dest: AsRef<Path>>(
     src: Src,
     dest: Dest,
     moc: MoveOrCopy,
+    styled: bool,
 ) -> String {
     let (src, dest) = (src.as_ref(), dest.as_ref());
     let arrow = moc.arrow();
@@ -489,11 +490,34 @@ fn message_with_arrow<Src: AsRef<Path>, Dest: AsRef<Path>>(
     let prefix_str = prefix.display().to_string();
     let sep = if prefix_str.ends_with('/') { "" } else { "/" };
 
-    match (prefix_len > 0, suffix_len > 0) {
-        (true, true) => format!("{prefix_str}{sep}{diff}/{}", suffix.display()),
-        (true, false) => format!("{prefix_str}{sep}{diff}"),
-        (false, true) => format!("{diff}/{}", suffix.display()),
-        (false, false) => unreachable!(),
+    if styled {
+        let dim = |s: &str| s.dimmed().to_string();
+        let diff = format!(
+            "{{{} {arrow} {}}}",
+            src_diff.display().to_string().magenta(),
+            dest_diff.display().to_string().green()
+        );
+        let italic = |s: &str| s.italic().to_string();
+        match (prefix_len > 0, suffix_len > 0) {
+            (true, true) => {
+                format!(
+                    "{}{}{diff}{}",
+                    dim(&prefix_str),
+                    dim(sep),
+                    italic(&format!("/{}", suffix.display()))
+                )
+            }
+            (true, false) => format!("{}{}{diff}", dim(&prefix_str), dim(sep)),
+            (false, true) => format!("{diff}{}", italic(&format!("/{}", suffix.display()))),
+            (false, false) => unreachable!(),
+        }
+    } else {
+        match (prefix_len > 0, suffix_len > 0) {
+            (true, true) => format!("{prefix_str}{sep}{diff}/{}", suffix.display()),
+            (true, false) => format!("{prefix_str}{sep}{diff}"),
+            (false, true) => format!("{diff}/{}", suffix.display()),
+            (false, false) => unreachable!(),
+        }
     }
 }
 
@@ -881,7 +905,7 @@ pub(crate) mod tests {
     #[test]
     fn message_with_arrow_common_prefix_only() {
         assert_eq!(
-            message_with_arrow("/a/b/c/d", "/a/b/x/y", MoveOrCopy::Move),
+            message_with_arrow("/a/b/c/d", "/a/b/x/y", MoveOrCopy::Move, false),
             "/a/b/{c/d -> x/y}"
         );
     }
@@ -889,7 +913,12 @@ pub(crate) mod tests {
     #[test]
     fn message_with_arrow_common_prefix_and_suffix() {
         assert_eq!(
-            message_with_arrow("/a/b/c/file.txt", "/a/x/y/file.txt", MoveOrCopy::Move),
+            message_with_arrow(
+                "/a/b/c/file.txt",
+                "/a/x/y/file.txt",
+                MoveOrCopy::Move,
+                false
+            ),
             "/a/{b/c -> x/y}/file.txt"
         );
     }
@@ -901,6 +930,7 @@ pub(crate) mod tests {
                 "/Users/junz/subtitled/todo/.organized",
                 "/Users/junz/subtitled/.organized",
                 MoveOrCopy::Move,
+                false,
             ),
             "/Users/junz/subtitled/{todo/.organized -> .organized}"
         );
@@ -909,7 +939,7 @@ pub(crate) mod tests {
     #[test]
     fn message_with_arrow_no_common_relative() {
         assert_eq!(
-            message_with_arrow("foo/bar", "baz/qux", MoveOrCopy::Move),
+            message_with_arrow("foo/bar", "baz/qux", MoveOrCopy::Move, false),
             "foo/bar -> baz/qux"
         );
     }
@@ -917,7 +947,7 @@ pub(crate) mod tests {
     #[test]
     fn message_with_arrow_only_root_common() {
         assert_eq!(
-            message_with_arrow("/foo/bar", "/baz/qux", MoveOrCopy::Move),
+            message_with_arrow("/foo/bar", "/baz/qux", MoveOrCopy::Move, false),
             "/{foo/bar -> baz/qux}"
         );
     }
@@ -925,7 +955,7 @@ pub(crate) mod tests {
     #[test]
     fn message_with_arrow_copy() {
         assert_eq!(
-            message_with_arrow("/a/b/src.txt", "/a/c/src.txt", MoveOrCopy::Copy),
+            message_with_arrow("/a/b/src.txt", "/a/c/src.txt", MoveOrCopy::Copy, false),
             "/a/{b => c}/src.txt"
         );
     }
@@ -933,7 +963,7 @@ pub(crate) mod tests {
     #[test]
     fn message_with_arrow_suffix_only() {
         assert_eq!(
-            message_with_arrow("foo/common.txt", "bar/common.txt", MoveOrCopy::Move),
+            message_with_arrow("foo/common.txt", "bar/common.txt", MoveOrCopy::Move, false),
             "{foo -> bar}/common.txt"
         );
     }

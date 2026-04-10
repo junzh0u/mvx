@@ -2,7 +2,7 @@ use anyhow::{Context, bail, ensure};
 use colored::Colorize;
 use log::LevelFilter;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -445,12 +445,56 @@ fn message_with_arrow<Src: AsRef<Path>, Dest: AsRef<Path>>(
     dest: Dest,
     moc: MoveOrCopy,
 ) -> String {
-    format!(
-        "{} {} {}",
-        src.as_ref().display(),
-        moc.arrow(),
-        dest.as_ref().display()
-    )
+    let (src, dest) = (src.as_ref(), dest.as_ref());
+    let arrow = moc.arrow();
+
+    let src_parts: Vec<_> = src.components().collect();
+    let dest_parts: Vec<_> = dest.components().collect();
+
+    let prefix_len = src_parts
+        .iter()
+        .zip(dest_parts.iter())
+        .take_while(|(a, b)| a == b)
+        .count();
+
+    let src_rest = &src_parts[prefix_len..];
+    let dest_rest = &dest_parts[prefix_len..];
+
+    // Find common suffix, but only if neither diff would become empty
+    let mut suffix_len = src_rest
+        .iter()
+        .rev()
+        .zip(dest_rest.iter().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    if src_rest.len() - suffix_len == 0 || dest_rest.len() - suffix_len == 0 {
+        suffix_len = 0;
+    }
+
+    if prefix_len == 0 && suffix_len == 0 {
+        return format!("{} {arrow} {}", src.display(), dest.display());
+    }
+
+    let prefix: PathBuf = src_parts[..prefix_len].iter().collect();
+    let src_diff: PathBuf = src_parts[prefix_len..src_parts.len() - suffix_len]
+        .iter()
+        .collect();
+    let dest_diff: PathBuf = dest_parts[prefix_len..dest_parts.len() - suffix_len]
+        .iter()
+        .collect();
+    let suffix: PathBuf = src_parts[src_parts.len() - suffix_len..].iter().collect();
+
+    let diff = format!("{{{} {arrow} {}}}", src_diff.display(), dest_diff.display());
+
+    let prefix_str = prefix.display().to_string();
+    let sep = if prefix_str.ends_with('/') { "" } else { "/" };
+
+    match (prefix_len > 0, suffix_len > 0) {
+        (true, true) => format!("{prefix_str}{sep}{diff}/{}", suffix.display()),
+        (true, false) => format!("{prefix_str}{sep}{diff}"),
+        (false, true) => format!("{diff}/{}", suffix.display()),
+        (false, false) => unreachable!(),
+    }
 }
 
 #[cfg(test)]
@@ -832,5 +876,65 @@ pub(crate) mod tests {
             let dest_path = dest_dir.path().join(path);
             assert_file_copied(&src_path, &dest_path);
         }
+    }
+
+    #[test]
+    fn message_with_arrow_common_prefix_only() {
+        assert_eq!(
+            message_with_arrow("/a/b/c/d", "/a/b/x/y", MoveOrCopy::Move),
+            "/a/b/{c/d -> x/y}"
+        );
+    }
+
+    #[test]
+    fn message_with_arrow_common_prefix_and_suffix() {
+        assert_eq!(
+            message_with_arrow("/a/b/c/file.txt", "/a/x/y/file.txt", MoveOrCopy::Move),
+            "/a/{b/c -> x/y}/file.txt"
+        );
+    }
+
+    #[test]
+    fn message_with_arrow_suffix_skipped_when_diff_empty() {
+        assert_eq!(
+            message_with_arrow(
+                "/Users/junz/subtitled/todo/.organized",
+                "/Users/junz/subtitled/.organized",
+                MoveOrCopy::Move,
+            ),
+            "/Users/junz/subtitled/{todo/.organized -> .organized}"
+        );
+    }
+
+    #[test]
+    fn message_with_arrow_no_common_relative() {
+        assert_eq!(
+            message_with_arrow("foo/bar", "baz/qux", MoveOrCopy::Move),
+            "foo/bar -> baz/qux"
+        );
+    }
+
+    #[test]
+    fn message_with_arrow_only_root_common() {
+        assert_eq!(
+            message_with_arrow("/foo/bar", "/baz/qux", MoveOrCopy::Move),
+            "/{foo/bar -> baz/qux}"
+        );
+    }
+
+    #[test]
+    fn message_with_arrow_copy() {
+        assert_eq!(
+            message_with_arrow("/a/b/src.txt", "/a/c/src.txt", MoveOrCopy::Copy),
+            "/a/{b => c}/src.txt"
+        );
+    }
+
+    #[test]
+    fn message_with_arrow_suffix_only() {
+        assert_eq!(
+            message_with_arrow("foo/common.txt", "bar/common.txt", MoveOrCopy::Move),
+            "{foo -> bar}/common.txt"
+        );
     }
 }

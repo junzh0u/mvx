@@ -148,6 +148,12 @@ impl Ctx<'_> {
 
         let fast_parts = stats.fast_path_summary();
 
+        let duration = if elapsed.as_secs() > 0 {
+            format!(" in {}", indicatif::HumanDuration(elapsed))
+        } else {
+            String::new()
+        };
+
         if stats.io_bytes > 0 {
             let fast_suffix = if let Some(summary) = &fast_parts {
                 let label = match self.moc {
@@ -159,9 +165,8 @@ impl Ctx<'_> {
                 String::new()
             };
             format!(
-                "{verb} {} in {}{}{fast_suffix}",
+                "{verb} {}{duration}{}{fast_suffix}",
                 indicatif::HumanBytes(stats.io_bytes),
-                indicatif::HumanDuration(elapsed),
                 human_speed(stats.io_bytes, elapsed),
             )
         } else if let Some(summary) = &fast_parts {
@@ -169,9 +174,9 @@ impl Ctx<'_> {
                 MoveOrCopy::Move => "Renamed",
                 MoveOrCopy::Copy => "Reflinked",
             };
-            format!("{label} {summary} in {}", indicatif::HumanDuration(elapsed),)
+            format!("{label} {summary}{duration}")
         } else {
-            format!("{verb} in {}", indicatif::HumanDuration(elapsed))
+            format!("{verb}{duration}")
         }
     }
 }

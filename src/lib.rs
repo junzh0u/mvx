@@ -404,7 +404,7 @@ pub fn ctrlc_flag() -> anyhow::Result<Arc<AtomicBool>> {
 
 fn bytes_progress_bar(size: u64, color: &str, moc: MoveOrCopy) -> indicatif::ProgressBar {
     let template = format!(
-        "{{total_bytes:>11}} [{{bar:40.{color}/white}}] {{bytes:<11}} ({{bytes_per_sec:>13}}, ETA: {{eta_precise}} ) {{prefix}} {{msg}}"
+        "{{total_bytes:>11}} [{{bar:40.{color}/white}}] {{bytes:<11}} ({{bytes_per_sec:>13}}, ETA: {{eta_precise}} ) {{prefix}} {{wide_msg}}"
     );
     let style = indicatif::ProgressStyle::with_template(&template)
         .unwrap()

@@ -475,16 +475,14 @@ fn message_with_arrow<Src: AsRef<Path>, Dest: AsRef<Path>>(
     let src_rest = &src_parts[prefix_len..];
     let dest_rest = &dest_parts[prefix_len..];
 
-    // Find common suffix, but only if neither diff would become empty
-    let mut suffix_len = src_rest
+    // Find common suffix. An empty diff on one side is rendered as "."
+    // so the suffix still factors when one path is a sub-path of the other.
+    let suffix_len = src_rest
         .iter()
         .rev()
         .zip(dest_rest.iter().rev())
         .take_while(|(a, b)| a == b)
         .count();
-    if src_rest.len() - suffix_len == 0 || dest_rest.len() - suffix_len == 0 {
-        suffix_len = 0;
-    }
 
     if prefix_len == 0 && suffix_len == 0 {
         return format!("{} {arrow} {}", src.display(), dest.display());
@@ -499,11 +497,15 @@ fn message_with_arrow<Src: AsRef<Path>, Dest: AsRef<Path>>(
         .collect();
     let suffix: PathBuf = src_parts[src_parts.len() - suffix_len..].iter().collect();
 
-    let diff = format!(
-        "{{ {} {arrow} {} }}",
-        src_diff.display(),
-        dest_diff.display()
-    );
+    let path_or_dot = |p: &Path| {
+        if p.as_os_str().is_empty() {
+            ".".to_string()
+        } else {
+            p.display().to_string()
+        }
+    };
+    let src_diff_str = path_or_dot(&src_diff);
+    let dest_diff_str = path_or_dot(&dest_diff);
 
     let prefix_str = prefix.display().to_string();
     let sep = if prefix_str.ends_with('/') { "" } else { "/" };
@@ -513,8 +515,8 @@ fn message_with_arrow<Src: AsRef<Path>, Dest: AsRef<Path>>(
         let diff = format!(
             "{} {} {arrow} {} {}",
             dim("{"),
-            src_diff.display().to_string().magenta(),
-            dest_diff.display().to_string().green(),
+            src_diff_str.magenta(),
+            dest_diff_str.green(),
             dim("}")
         );
         let italic = |s: &str| s.italic().to_string();
@@ -532,6 +534,7 @@ fn message_with_arrow<Src: AsRef<Path>, Dest: AsRef<Path>>(
             (false, false) => unreachable!(),
         }
     } else {
+        let diff = format!("{{ {src_diff_str} {arrow} {dest_diff_str} }}");
         match (prefix_len > 0, suffix_len > 0) {
             (true, true) => format!("{prefix_str}{sep}{diff}/{}", suffix.display()),
             (true, false) => format!("{prefix_str}{sep}{diff}"),
@@ -944,7 +947,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn message_with_arrow_suffix_skipped_when_diff_empty() {
+    fn message_with_arrow_dest_diff_empty_uses_dot() {
         assert_eq!(
             message_with_arrow(
                 "/Users/junz/subtitled/todo/.organized",
@@ -952,7 +955,41 @@ pub(crate) mod tests {
                 MoveOrCopy::Move,
                 false,
             ),
-            "/Users/junz/subtitled/{ todo/.organized -> .organized }"
+            "/Users/junz/subtitled/{ todo -> . }/.organized"
+        );
+    }
+
+    #[test]
+    fn message_with_arrow_src_is_suffix_of_dest() {
+        assert_eq!(
+            message_with_arrow("GC", "/Volumes/hdd/GC", MoveOrCopy::Move, false),
+            "{ . -> /Volumes/hdd }/GC"
+        );
+    }
+
+    #[test]
+    fn message_with_arrow_dest_under_src() {
+        assert_eq!(
+            message_with_arrow("/a/b", "/a/b/c", MoveOrCopy::Move, false),
+            "/a/b/{ . -> c }"
+        );
+    }
+
+    #[test]
+    fn message_with_arrow_dest_extends_src() {
+        // src is an ancestor of dest: prefix factors fully, dest has a tail.
+        assert_eq!(
+            message_with_arrow("/a", "/a/b", MoveOrCopy::Move, false),
+            "/a/{ . -> b }"
+        );
+    }
+
+    #[test]
+    fn message_with_arrow_src_named_like_dest_tail() {
+        // Only root is shared as prefix (reset to none); the basename factors as suffix.
+        assert_eq!(
+            message_with_arrow("/b", "/a/b", MoveOrCopy::Move, false),
+            "{ / -> /a }/b"
         );
     }
 

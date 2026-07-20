@@ -11,6 +11,10 @@ keywords = ["mv", "move", "file", "utility", "cli"]
 categories = ["command-line-utilities", "filesystem"]
 authors = ["Jun Zhou <github@junz.info>"]
 
+# crates.io publish happens in CI (release.yml publish-crate job, gated on checks)
+[package.metadata.release]
+publish = false
+
 [dependencies]
 anyhow = "1.0.98"
 chrono = "0.4.41"

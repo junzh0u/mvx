@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.2.10 - 2026-07-20
+
+### Features
+
+- Compact path display by factoring out common prefix and suffix
+- Color-code path diffs in terminal output
+- Polish path diff display with padded braces and root prefix absorption
+- Render empty path diff as "." so suffix factoring kicks in for sub-paths
+- Omit duration from completion message when under 1 second
+
+### Fixes
+
+- Truncate progress bar message to fit terminal width
+
+### Chores
+
+- Gate release jobs on fmt/clippy/test and publish to crates.io from CI via Trusted Publishing
+- Use cross-deploy helper for `just deploy-linux`
+
 ## v0.2.9 - 2026-04-07
 
 ### Features

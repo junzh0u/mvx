@@ -1,3 +1,5 @@
+set fallback := true
+
 # Run all checks
 check: fmt clippy test
 
@@ -21,7 +23,3 @@ fix:
 # Install the binary
 install:
     cargo install --path .
-
-# Build Linux x86_64 binary and deploy to remote host
-deploy-linux host path="~/.local/bin":
-    cross-deploy {{host}} {{path}}
